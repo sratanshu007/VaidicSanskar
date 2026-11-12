@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../theme/colors';
 import styles, { serif, radius, shadow } from '../../theme/styles';
 import { useLanguage } from '../../context/LanguageContext';
+import { useApp } from '../../context/AppContext';
 import talkToAstroStore, { RECHARGE_PACKS } from '../../services/talkToAstroStore';
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
 import socket from '../../services/socket';
@@ -24,6 +25,7 @@ import { SOCKET_URL, API_URL } from '../../config/env';
 export default function VartalapScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { isHindi } = useLanguage();
+  const { addMoney } = useApp();
   const [astrologers, setAstrologers] = useState(talkToAstroStore.getAstrologers());
   const [wallet, setWallet] = useState(talkToAstroStore.getWallet());
   const [filterMode, setFilterMode] = useState('online'); // 'online' | 'all'
@@ -57,9 +59,9 @@ export default function VartalapScreen({ navigation }) {
           nameHi: a.nameHi || a.name || 'पंडित जी',
           title: a.title || 'वरिष्ठ वैदिक ज्योतिषाचार्य व कुंडली विशेषज्ञ',
           photo: a.profileImage || a.photo || 'jyotish_acharya',
-          rating: Number(a.rating || a.averageRating || 5.0),
-          reviewsCount: Number(a.totalReviews || a.reviewsCount || 120),
-          experienceYears: Number(a.experienceYears || a.experience || 10),
+          rating: Number(a.rating || a.averageRating || 0),
+          reviewsCount: Number(a.totalReviews || a.reviewsCount || 0),
+          experienceYears: Number(a.experienceYears || a.experience || 0),
           skills: Array.isArray(a.skills) && a.skills.length ? a.skills : ['Vedic', 'KP Astrology', 'Kundli'],
           languages: Array.isArray(a.languages) && a.languages.length ? a.languages : ['हिंदी', 'संस्कृत', 'English'],
           chatRate: 5,
@@ -67,8 +69,8 @@ export default function VartalapScreen({ navigation }) {
           videoRate: 5,
           rates: { chat: 5, audio: 5, video: 5 },
           isOnline: a.isOnline !== false,
-          ordersCompleted: Number(a.ordersCompleted || 350),
-          totalMinutes: Number(a.totalMinutes || 5000),
+          ordersCompleted: Number(a.ordersCompleted || 0),
+          totalMinutes: Number(a.totalMinutes || 0),
           bio: a.bio || a.about || 'वैदिक ज्योतिष, कुंडली मिलान, गृह शांति व जीवन मार्गदर्शन विशेषज्ञ।',
           about: a.bio || a.about || 'वैदिक ज्योतिष, कुंडली मिलान, गृह शांति व जीवन मार्गदर्शन विशेषज्ञ।',
         }));
@@ -108,7 +110,8 @@ export default function VartalapScreen({ navigation }) {
   const onlineCount = astrologers.filter((a) => a.isOnline).length;
 
   const handleQuickRecharge = (pack) => {
-    talkToAstroStore.rechargeWallet(pack);
+    const totalCredit = Number(pack.amount || 0) + Number(pack.bonus || 0);
+    addMoney(totalCredit, 'Vartalap Wallet Recharge');
     setShowRechargeModal(false);
     Alert.alert(
       'रीचार्ज सफल!',
@@ -291,17 +294,111 @@ export default function VartalapScreen({ navigation }) {
                 </View>
               </View>
 
-              {/* Connect CTA Button */}
+              {/* Quick Connect Actions Row */}
+              <View style={s.cardActionsRow}>
+                {/* 1. Video Call */}
+                <TouchableOpacity
+                  style={[s.quickCallBtn, s.videoCallBtn]}
+                  onPress={() => {
+                    const { astrologer: resolved } = talkToAstroStore.resolveTargetAstrologer(astro);
+                    const target = resolved || astro;
+                    navigation.navigate('AstroProfile', { astrologer: target, astrologerId: target.id, mode: 'video', autoStart: true });
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="video" size={16} color="#FFFFFF" />
+                  <Text style={s.quickCallBtnText}>वीडियो कॉल</Text>
+                </TouchableOpacity>
+
+                {/* 2. Audio Call */}
+                <TouchableOpacity
+                  style={[s.quickCallBtn, s.audioCallBtn]}
+                  onPress={() => {
+                    const { astrologer: resolved } = talkToAstroStore.resolveTargetAstrologer(astro);
+                    const target = resolved || astro;
+                    navigation.navigate('AstroProfile', { astrologer: target, astrologerId: target.id, mode: 'audio', autoStart: true });
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="phone" size={16} color="#FFFFFF" />
+                  <Text style={s.quickCallBtnText}>ऑडियो कॉल</Text>
+                </TouchableOpacity>
+
+                {/* 3. Chat */}
+                <TouchableOpacity
+                  style={[s.quickCallBtn, s.chatCallBtn]}
+                  onPress={() => {
+                    const { astrologer: resolved } = talkToAstroStore.resolveTargetAstrologer(astro);
+                    const target = resolved || astro;
+                    navigation.navigate('AstroProfile', { astrologer: target, astrologerId: target.id, mode: 'chat', autoStart: true });
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="chat-processing" size={16} color="#FFFFFF" />
+                  <Text style={s.quickCallBtnText}>चैट</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* View Profile Link */}
               <TouchableOpacity
-                style={s.connectCtaBtn}
+                style={s.profileLinkRow}
                 onPress={() => navigation.navigate('AstroProfile', { astrologer: astro, astrologerId: astro.id })}
+                activeOpacity={0.7}
               >
-                <MaterialCommunityIcons name="account-eye-outline" size={18} color="#FFFFFF" />
-                <Text style={s.connectCtaText}>विवरण देखें व परामर्श लें (View & Connect)</Text>
+                <Text style={s.profileLinkText}>विस्तृत प्रोफ़ाइल व समीक्षाएँ देखें ›</Text>
               </TouchableOpacity>
             </TouchableOpacity>
           ))
         )}
+
+        {/* Smart Auto-Route Card: Connects directly to whichever astrologer is online if any listed astro isn't visible */}
+        <View style={s.smartRouteCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <MaterialCommunityIcons name="lightning-bolt-circle" size={20} color="#15803D" />
+            <Text style={s.smartRouteTitle}>
+              {filteredAstrologers.length === 0
+                ? 'कोई सूचीबद्ध ज्योतिषी नहीं दिखा? सीधे ऑनलाइन ज्योतिषी से जुड़ें'
+                : 'तुरंत उपलब्ध ऑनलाइन ज्योतिषी से जुड़ें (Auto-Connect)'}
+            </Text>
+          </View>
+          <Text style={s.smartRouteSub}>
+            यदि आपका पसंदीदा ज्योतिषी दृश्यमान या उपलब्ध नहीं है, तो अनुरोध स्वतः किसी भी लाइव ऑनलाइन ज्योतिषी तक भेजा जाएगा।
+          </Text>
+          <View style={s.smartRouteActions}>
+            {[
+              { mode: 'video', label: 'वीडियो कॉल', icon: 'video', style: { backgroundColor: '#67101F' } },
+              { mode: 'audio', label: 'ऑडियो कॉल', icon: 'phone', style: s.audioCallBtn },
+              { mode: 'chat', label: 'चैट', icon: 'chat-processing', style: s.chatCallBtn },
+            ].map((btn) => (
+              <TouchableOpacity
+                key={btn.mode}
+                style={[s.quickCallBtn, btn.style]}
+                onPress={() => {
+                  const { astrologer: resolved } = talkToAstroStore.resolveTargetAstrologer(null);
+                  const onlineFallback = resolved?.isOnline
+                    ? resolved
+                    : {
+                        id: 'AUTO_ONLINE',
+                        name: 'लाइव ऑनलाइन ज्योतिषी',
+                        title: 'उपलब्ध वैदिक ज्योतिषी (Auto-Routed)',
+                        isOnline: true,
+                        rates: { chat: 5, audio: 5, video: 5 },
+                      };
+                  navigation.navigate('AstroProfile', {
+                    astrologer: onlineFallback,
+                    astrologerId: onlineFallback.id,
+                    mode: btn.mode,
+                    autoStart: true,
+                  });
+                }}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons name={btn.icon} size={15} color="#FFFFFF" />
+                <Text style={s.quickCallBtnText}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -638,20 +735,49 @@ const s = StyleSheet.create({
     color: colors.textMuted,
     marginLeft: 2,
   },
-  connectCtaBtn: {
+  cardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 12,
+  },
+  quickCallBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
-    paddingVertical: 11,
+    paddingVertical: 9,
     borderRadius: 10,
-    marginTop: 12,
-    gap: 6,
+    gap: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  connectCtaText: {
+  videoCallBtn: {
+    backgroundColor: '#9A1B28',
+  },
+  audioCallBtn: {
+    backgroundColor: '#1E8E4A',
+  },
+  chatCallBtn: {
+    backgroundColor: '#D48B28',
+  },
+  quickCallBtnText: {
     color: '#FFFFFF',
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 12,
+  },
+  profileLinkRow: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginTop: 4,
+  },
+  profileLinkText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
@@ -711,5 +837,30 @@ const s = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     marginTop: 4,
+  },
+  smartRouteCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.2,
+    borderColor: '#86EFAC',
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 14,
+  },
+  smartRouteTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#14532D',
+    marginLeft: 6,
+    flex: 1,
+  },
+  smartRouteSub: {
+    fontSize: 11.5,
+    color: '#166534',
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  smartRouteActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
 });

@@ -125,12 +125,21 @@ export default function BookingReviewScreen({ navigation, route }) {
 
       // 3. Real-time sync with backend API (/api/partner/bookings)
       let targetBookingId = createdBooking.id;
+      let syncedBooking = createdBooking;
       try {
-        const res = await BookingService.create(bookingPayload);
-        const serverBooking = res?.booking || res;
+        const res = await BookingService.create({
+          ...bookingPayload,
+          startOtp: createdBooking.startOtp,
+          completeOtp: createdBooking.completeOtp,
+        });
+        const serverBooking = res?.booking || (res?.id || res?._id ? res : null);
         if (serverBooking?._id || serverBooking?.id) {
           targetBookingId = String(serverBooking._id || serverBooking.id);
-          createdBooking.id = targetBookingId;
+          syncedBooking = panditBookingStore.hydrateFromServer(serverBooking) || {
+            ...createdBooking,
+            ...serverBooking,
+            id: targetBookingId,
+          };
         }
       } catch (netErr) {
         console.log('Backend booking sync notice:', netErr?.message);
@@ -139,7 +148,7 @@ export default function BookingReviewScreen({ navigation, route }) {
       // 4. Transition immediately to Screen 5: Finding a Pandit
       navigation.replace('Searching', {
         bookingId: targetBookingId,
-        booking: createdBooking,
+        booking: syncedBooking,
       });
     } catch (e) {
       Alert.alert('Error', 'Unable to initiate pandit search. Please try again.');

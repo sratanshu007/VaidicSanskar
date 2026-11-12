@@ -8,7 +8,9 @@ import React, { createContext, useContext, useState, useMemo, useCallback } from
  * Developer: for larger teams this maps 1:1 onto Redux slices or Bloc cubits.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setAuthToken } from '../services/api';
+import { setAuthToken, WalletService } from '../services/api';
+import panditBookingStore from '../services/panditBookingStore';
+import talkToAstroStore from '../services/talkToAstroStore';
 
 const USER_STORAGE_KEY = '@vaidic_sanskar_user_profile';
 
@@ -17,6 +19,27 @@ const AppContext = createContext(null);
 export const AppProvider = ({ children }) => {
   /* ---------------- AUTH / PROFILE ---------------- */
   const [user, setUser] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [ledger, setLedger] = useState([]);
+
+  const refreshWallet = useCallback(async () => {
+    try {
+      const res = await WalletService.get();
+      const rawBal = Number(res?.balance ?? res?.walletBalance ?? res?.data?.balance ?? 0);
+      const nextBal = Number.isFinite(rawBal) ? Math.max(0, rawBal) : 0;
+      const nextLedger = Array.isArray(res?.ledger)
+        ? res.ledger
+        : Array.isArray(res?.transactions)
+        ? res.transactions
+        : [];
+      setBalance(nextBal);
+      setLedger(nextLedger);
+      talkToAstroStore.setWalletFromServer(nextBal, nextLedger);
+      return nextBal;
+    } catch (_) {
+      return null;
+    }
+  }, []);
 
   // Restore user from storage on mount
   React.useEffect(() => {
@@ -27,24 +50,42 @@ export const AppProvider = ({ children }) => {
             const parsed = JSON.parse(raw);
             setUser(parsed);
             if (parsed?.token) setAuthToken(parsed.token);
+            if (parsed) refreshWallet();
           } catch (e) { }
         }
       })
       .catch(() => { });
-  }, []);
+  }, [refreshWallet]);
 
   const login = useCallback((u) => {
-    setUser(u);
+    setUser((prev) => {
+      const prevId = String(prev?.id || prev?._id || prev?.email || prev?.phone || '');
+      const nextId = String(u?.id || u?._id || u?.email || u?.phone || '');
+      if (!prevId || !nextId || prevId !== nextId) {
+        setBalance(0);
+        setLedger([]);
+        setCart([]);
+        panditBookingStore.clearLocalCache();
+        talkToAstroStore.resetWallet();
+      }
+      return u;
+    });
     if (u) {
       AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u)).catch(() => { });
     }
     if (u?.token) setAuthToken(u.token);
-  }, []);
+    if (u) refreshWallet();
+  }, [refreshWallet]);
 
   const logout = useCallback(() => {
     setUser(null);
+    setBalance(0);
+    setLedger([]);
+    setCart([]);
     AsyncStorage.removeItem(USER_STORAGE_KEY).catch(() => { });
     setAuthToken(null);
+    panditBookingStore.clearLocalCache();
+    talkToAstroStore.resetWallet();
   }, []);
 
   const updateProfile = useCallback((patch) => {
@@ -64,20 +105,40 @@ export const AppProvider = ({ children }) => {
     });
   }, []);
 
-  /* ---------------- WALLET ---------------- */
-  const [balance, setBalance] = useState(0);
-  const [ledger, setLedger] = useState([]);
-
   const addMoney = useCallback((amount, method = 'UPI') => {
-    setBalance((b) => b + amount);
-    setLedger((l) => [{ id: Date.now().toString(), type: 'credit', title: `Added via ${method}`, amount, at: today() }, ...l]);
+    const numAmt = Number(amount || 0);
+    if (!Number.isFinite(numAmt) || numAmt <= 0) return;
+    setBalance((b) => b + numAmt);
+    setLedger((l) => [{ id: Date.now().toString(), type: 'credit', title: `Added via ${method}`, amount: numAmt, at: today() }, ...l]);
+    talkToAstroStore.rechargeWallet({ amount: numAmt, bonus: 0 });
+    WalletService.credit(numAmt, method)
+      .then((res) => {
+        if (typeof res?.balance === 'number') {
+          setBalance(res.balance);
+          talkToAstroStore.setWalletFromServer(res.balance, res.ledger);
+        }
+        if (Array.isArray(res?.ledger)) setLedger(res.ledger);
+      })
+      .catch(() => {});
   }, []);
 
   const deduct = useCallback((amount, title) => {
+    const numAmt = Number(amount || 0);
+    if (!Number.isFinite(numAmt) || numAmt <= 0) return false;
     let ok = false;
-    setBalance((b) => { if (b >= amount) { ok = true; return b - amount; } return b; });
+    setBalance((b) => { if (b >= numAmt) { ok = true; return b - numAmt; } return b; });
     if (ok !== false) {
-      setLedger((l) => [{ id: Date.now().toString(), type: 'debit', title, amount, at: today() }, ...l]);
+      setLedger((l) => [{ id: Date.now().toString(), type: 'debit', title, amount: numAmt, at: today() }, ...l]);
+      talkToAstroStore.deductMoney(numAmt, title, false);
+      WalletService.debit(numAmt, title)
+        .then((res) => {
+          if (typeof res?.balance === 'number') {
+            setBalance(res.balance);
+            talkToAstroStore.setWalletFromServer(res.balance, res.ledger);
+          }
+          if (Array.isArray(res?.ledger)) setLedger(res.ledger);
+        })
+        .catch(() => {});
     }
     return ok;
   }, []);

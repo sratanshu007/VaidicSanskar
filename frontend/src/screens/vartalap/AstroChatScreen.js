@@ -19,6 +19,7 @@ import styles, { serif, radius, shadow } from '../../theme/styles';
 import talkToAstroStore, { RECHARGE_PACKS } from '../../services/talkToAstroStore';
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
 import socket from '../../services/socket';
+import { useKeyboardLift } from '../../utils/useKeyboardLift';
 
 export default function AstroChatScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -34,6 +35,11 @@ export default function AstroChatScreen({ navigation }) {
   const [isAnonymous, setIsAnonymous] = useState(false);
 
   const scrollViewRef = useRef();
+  const chatChannelRef = useRef(null);
+  const routedRecipientRef = useRef(null);
+  const { androidLift, onContainerLayout } = useKeyboardLift(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  });
 
   useEffect(() => {
     const unsub = talkToAstroStore.subscribe((store) => {
@@ -47,9 +53,13 @@ export default function AstroChatScreen({ navigation }) {
     // Notify Astrologer Partner App about incoming live chat consultation
     const cur = talkToAstroStore.getActiveSession();
     if (cur) {
+      const targetId = cur.astrologer?.id || cur.astrologerId || 'ASTRO-7890';
+      const channelName = cur.channelName || `astro_chat_${cur.id || Date.now()}`;
+      chatChannelRef.current = channelName;
+      routedRecipientRef.current = targetId;
       socket.emit('astro:call:initiate', {
-        channelName: `astro_chat_${cur.id || Date.now()}`,
-        recipientId: cur.astrologerId || 'V4569',
+        channelName,
+        recipientId: targetId,
         caller: {
           id: 'U101',
           name: 'Sratanshu Shukla',
@@ -72,11 +82,19 @@ export default function AstroChatScreen({ navigation }) {
       }
     };
 
+    const handleRouted = (payload) => {
+      if (payload?.recipientId) {
+        routedRecipientRef.current = payload.recipientId;
+      }
+    };
+
     socket.on('astro:chat:message', handleIncomingMessage);
+    socket.on('astro:call:routed', handleRouted);
 
     return () => {
       unsub();
       socket.off('astro:chat:message', handleIncomingMessage);
+      socket.off('astro:call:routed', handleRouted);
     };
   }, []);
 
@@ -92,7 +110,8 @@ export default function AstroChatScreen({ navigation }) {
     talkToAstroStore.sendMessage(text);
     socket.emit('astro:chat:send', {
       sessionId: session?.id || 'SES-CURRENT',
-      recipientId: session?.astrologerId || 'V4569',
+      channelName: chatChannelRef.current || session?.channelName,
+      recipientId: routedRecipientRef.current || session?.astrologer?.id || session?.astrologerId || 'ASTRO-7890',
       text,
       sender: 'user',
       message: {
@@ -165,8 +184,13 @@ export default function AstroChatScreen({ navigation }) {
 
   return (
     <KeyboardAvoidingView
+      onLayout={onContainerLayout}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[s.container, { paddingTop: insets.top }]}
+      style={[
+        s.container,
+        { paddingTop: insets.top },
+        Platform.OS === 'android' && androidLift > 0 ? { paddingBottom: androidLift } : null,
+      ]}
     >
       {/* Top Header */}
       <View style={s.navHeader}>
@@ -220,8 +244,10 @@ export default function AstroChatScreen({ navigation }) {
       {/* Chat Messages List */}
       <ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={s.messagesScroll}
+        contentContainerStyle={[s.messagesScroll, { flexGrow: 1 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
         {session.chatMessages.map((msg) => {
@@ -253,7 +279,12 @@ export default function AstroChatScreen({ navigation }) {
       </ScrollView>
 
       {/* Bottom Message Input Bar */}
-      <View style={[s.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View
+        style={[
+          s.inputBar,
+          { paddingBottom: androidLift > 0 ? 8 : Math.max(insets.bottom, 8) },
+        ]}
+      >
         <TouchableOpacity
           style={s.attachBtn}
           onPress={() => Alert.alert('फोटो भेजें', 'अपनी हथेली या जन्मकुंडली की फोटो भेजें।')}
@@ -265,8 +296,12 @@ export default function AstroChatScreen({ navigation }) {
           style={s.textInput}
           value={inputText}
           onChangeText={setInputText}
+          onFocus={() => setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 120)}
           placeholder="अपना प्रश्न यहाँ लिखें..."
           placeholderTextColor="#A8988C"
+          multiline
+          maxLength={1000}
+          textAlignVertical="center"
         />
 
         <TouchableOpacity
@@ -603,11 +638,13 @@ const s = StyleSheet.create({
   },
   textInput: {
     flex: 1,
+    minHeight: 40,
+    maxHeight: 100,
     backgroundColor: '#FAF7F0',
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    fontSize: 13,
+    fontSize: 13.5,
     color: colors.text,
     borderWidth: 1,
     borderColor: '#ECE3D7',

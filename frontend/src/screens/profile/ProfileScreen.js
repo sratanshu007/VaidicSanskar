@@ -27,8 +27,8 @@ export default function ProfileScreen({ navigation }) {
   const { user, logout } = useApp();
   const { language, openLanguageModal, isHindi, getText } = useLanguage();
 
-  const displayName = user?.name || (isHindi ? 'भक्त' : 'Rohan Sharma');
-  const userEmail = user?.email || 'rohan@example.com';
+  const displayName = user?.name || (isHindi ? 'भक्त' : 'Devotee');
+  const userEmail = user?.email || user?.phone || (isHindi ? 'प्रोफ़ाइल देखें' : 'View profile');
 
   const menuItems = [
     {

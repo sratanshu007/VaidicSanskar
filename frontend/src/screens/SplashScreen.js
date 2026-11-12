@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, StatusBar, Platform } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, StatusBar, Platform, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoSplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import colors from '../theme/colors';
@@ -10,6 +11,13 @@ import { serif } from '../theme/styles';
 const USER_STORAGE_KEY = '@vaidic_sanskar_user_profile';
 
 export default function SplashScreen({ navigation }) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const haloSize = Math.min(Math.round(width * 0.84), 340);
+  const outerRingSize = Math.min(Math.round(width * 0.28), 114);
+  const innerRingSize = Math.round(outerRingSize * 0.84);
+  const omIconSize = Math.round(innerRingSize * 0.58);
+  const titleFontSize = Math.min(34, Math.max(26, Math.round(width * 0.088)));
   const fade = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.82)).current;
   const glow = useRef(new Animated.Value(0.4)).current;
@@ -72,37 +80,81 @@ export default function SplashScreen({ navigation }) {
       />
 
       {/* Pulsing Sacred Golden Halo */}
-      <Animated.View style={[s.glow, { opacity: glow, transform: [{ scale: scale.interpolate({ inputRange: [0.82, 1], outputRange: [0.9, 1.1] }) }] }]} />
+      <Animated.View
+        style={[
+          s.glow,
+          {
+            width: haloSize,
+            height: haloSize,
+            borderRadius: haloSize / 2,
+            opacity: glow,
+            transform: [{ scale: scale.interpolate({ inputRange: [0.82, 1], outputRange: [0.9, 1.1] }) }],
+          },
+        ]}
+      />
 
       {/* Center Devotional Branding */}
-      <Animated.View style={[s.content, { opacity: fade, transform: [{ scale }] }]}>
+      <Animated.View
+        style={[
+          s.content,
+          { paddingBottom: Math.max(height * 0.04, 20), opacity: fade, transform: [{ scale }] },
+        ]}
+      >
         {/* Sacred Lotus / Diya Top Accent */}
-        <MaterialCommunityIcons name="hands-pray" size={32} color={colors.saffron || '#EAA838'} style={{ marginBottom: 10 }} />
+        <MaterialCommunityIcons name="hands-pray" size={30} color={colors.saffron || '#EAA838'} style={{ marginBottom: 12 }} />
 
         {/* Golden Om Emblem Disc */}
-        <View style={s.omOuterRing}>
-          <View style={s.omInnerRing}>
-            <MaterialCommunityIcons name="om" size={56} color="#FCE1A8" />
+        <View
+          style={[
+            s.omOuterRing,
+            {
+              width: outerRingSize,
+              height: outerRingSize,
+              borderRadius: outerRingSize / 2,
+            },
+          ]}
+        >
+          <View
+            style={[
+              s.omInnerRing,
+              {
+                width: innerRingSize,
+                height: innerRingSize,
+                borderRadius: innerRingSize / 2,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="om" size={omIconSize} color="#FCE1A8" />
           </View>
         </View>
 
         {/* Brand Name */}
-        <Text style={s.title}>VaidicSanskar</Text>
+        <Text
+          style={[s.title, { fontSize: titleFontSize }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          maxFontSizeMultiplier={1.15}
+        >
+          VaidicSanskar
+        </Text>
 
         {/* Sanskrit Sacred Shloka Tagline */}
         <View style={s.tagRow}>
           <View style={s.tagLine} />
-          <Text style={s.tagText}>संस्कार  •  साधना  •  समर्पण</Text>
+          <Text style={s.tagText} numberOfLines={1} maxFontSizeMultiplier={1.15}>
+            संस्कार  •  साधना  •  समर्पण
+          </Text>
           <View style={s.tagLine} />
         </View>
 
-        <Text style={s.subtitle}>
+        <Text style={s.subtitle} maxFontSizeMultiplier={1.15}>
           Modern Services for{'\n'}Timeless Sacred Traditions
         </Text>
       </Animated.View>
 
       {/* Bottom Loading Progress & Sacred Connection Text */}
-      <View style={s.footer}>
+      <View style={[s.footer, { bottom: Math.max(insets.bottom, 22) + 18 }]}>
         <View style={s.track}>
           <Animated.View
             style={[
@@ -137,8 +189,9 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(234, 168, 56, 0.14)',
   },
   content: {
+    width: '100%',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 20,
   },
   omOuterRing: {
     width: 114,
@@ -168,10 +221,11 @@ const s = StyleSheet.create({
   },
   title: {
     fontFamily: serif,
-    fontSize: 40,
+    fontSize: 34,
     color: '#FFF2DB',
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.4,
+    textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,

@@ -14,14 +14,17 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
 import colors from '../../theme/colors';
 import { serif } from '../../theme/styles';
 import { AuthService, setAuthToken } from '../../services/api';
 import { useAuth } from '../../context/AppContext';
 
-WebBrowser.maybeCompleteAuthSession();
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+  userInfoEndpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
+};
 
 export default function LoginScreen({ navigation }) {
   const [phoneOrEmail, setPhoneOrEmail] = useState('');
@@ -30,26 +33,17 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
 
-  // Google OAuth
+  // Google OAuth IDs (safe lazy OAuth — avoids top-level ExpoApplication native module crash)
   const webId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
   const androidId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || webId;
   const iosId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || webId;
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: webId,
-    androidClientId: androidId,
-    iosClientId: iosId,
-    webClientId: webId,
-  });
-
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        handleGoogleSuccess(authentication.accessToken);
-      }
-    }
-  }, [response]);
+    try {
+      const WebBrowser = require('expo-web-browser');
+      WebBrowser?.maybeCompleteAuthSession?.();
+    } catch (_) {}
+  }, []);
 
   const handleGoogleSuccess = async (token) => {
     setLoading(true);
@@ -76,13 +70,63 @@ export default function LoginScreen({ navigation }) {
 
   const onGooglePress = async () => {
     try {
-      if (!promptAsync) {
-        Alert.alert('Google Sign-In', 'Google Sign-In is not initialized or not supported on this device.');
+      const AuthSession = require('expo-auth-session');
+      const clientId = Platform.select({
+        ios: iosId,
+        android: androidId,
+        default: webId,
+      }) || webId;
+
+      if (!clientId) {
+        Alert.alert('Google Sign-In', 'Google Client ID configure nahi hai.');
         return;
       }
-      await promptAsync();
+
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'vaidicsanskar',
+        native: 'com.deificdigital.paramparauser:/oauthredirect',
+      });
+
+      const responseType =
+        Platform.OS === 'web'
+          ? AuthSession.ResponseType?.Token || 'token'
+          : AuthSession.ResponseType?.Code || 'code';
+
+      const authReq = new AuthSession.AuthRequest({
+        clientId,
+        redirectUri,
+        scopes: ['openid', 'profile', 'email'],
+        responseType,
+        usePKCE: Platform.OS !== 'web',
+      });
+
+      const res = await authReq.promptAsync(GOOGLE_DISCOVERY);
+      if (res?.type !== 'success') return;
+
+      let accessToken = res.authentication?.accessToken || res.params?.access_token;
+      if (!accessToken && res.params?.code) {
+        const tokenRes = await AuthSession.exchangeCodeAsync(
+          {
+            clientId,
+            code: res.params.code,
+            redirectUri,
+            extraParams: authReq.codeVerifier ? { code_verifier: authReq.codeVerifier } : undefined,
+          },
+          GOOGLE_DISCOVERY
+        );
+        accessToken = tokenRes?.accessToken;
+      }
+
+      if (accessToken) {
+        await handleGoogleSuccess(accessToken);
+      } else {
+        Alert.alert('Google Sign-In Error', 'Google se access token prapt nahi ho saka.');
+      }
     } catch (e) {
-      Alert.alert('Google Sign-In Error', e?.message || 'Could not initiate Google Sign-In.');
+      Alert.alert(
+        'Google Sign-In Error',
+        e?.message || 'Could not initiate Google Sign-In on this device.'
+      );
     }
   };
 

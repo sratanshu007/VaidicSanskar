@@ -20,12 +20,12 @@ import socket from './socket.js';
 
 class TalkToAstroStore {
   constructor() {
-    // Dynamic astrologers registry — populated in real-time from WebSocket & REST Discovery
+    // Dynamic astrologers registry — populated exclusively from live sockets & API
     this.astrologers = [];
 
-    // Wallet balances (initialized with user balance ₹2598)
+    // Wallet balances — initialized to ₹0 for new users and synced with backend
     this.wallet = {
-      mainBalance: 2598,
+      mainBalance: 0,
       bonusBalance: 0,
       transactions: [],
     };
@@ -47,9 +47,9 @@ class TalkToAstroStore {
           nameHi: data.nameHi || data.name || 'पंडित जी (Live Partner)',
           title: data.title || 'सत्यापित वैदिक ज्योतिषी • पार्टनर ऐप लाइव',
           photo: data.photo || data.profileImage || 'pandit_varanasi',
-          rating: Number(data.rating || data.averageRating || 5.0),
-          reviewsCount: Number(data.reviewsCount || data.totalReviews || 120),
-          experienceYears: Number(data.experienceYears || data.experience || 10),
+          rating: Number(data.rating || data.averageRating || 0),
+          reviewsCount: Number(data.reviewsCount || data.totalReviews || 0),
+          experienceYears: Number(data.experienceYears || data.experience || 0),
           skills: Array.isArray(data.skills) && data.skills.length ? data.skills : ['Vedic', 'KP Astrology', 'Kundli'],
           languages: Array.isArray(data.languages) && data.languages.length ? data.languages : ['हिंदी', 'संस्कृत', 'English'],
           chatRate: Number(data.rates?.chat || data.chatRate || 5),
@@ -62,8 +62,10 @@ class TalkToAstroStore {
           },
           presence: data.presence || { chatOnline: true, audioOnline: true, videoOnline: true },
           isOnline: data.isOnline !== false,
-          ordersCompleted: Number(data.ordersCompleted || 350),
-          totalMinutes: Number(data.totalMinutes || 5000),
+          isLiveSocket: data.isOnline !== false,
+          socketId: data.socketId || null,
+          ordersCompleted: Number(data.ordersCompleted || 0),
+          totalMinutes: Number(data.totalMinutes || 0),
           bio: data.bio || data.about || 'वैदिक ज्योतिष, कुंडली मिलान, गृह शांति व वास्तु परामर्श विशेषज्ञ। पार्टनर ऐप से सीधे लाइव कनेक्टेड।',
           about: data.bio || data.about || 'वैदिक ज्योतिष, कुंडली मिलान, गृह शांति व वास्तु परामर्श विशेषज्ञ। पार्टनर ऐप से सीधे लाइव कनेक्टेड।',
         };
@@ -77,8 +79,24 @@ class TalkToAstroStore {
       };
 
       const handlePartnerList = (list) => {
-        if (Array.isArray(list) && list.length) {
-          list.forEach((item) => handlePartnerPresence(item));
+        if (!Array.isArray(list)) return;
+        const liveIds = new Set(
+          list
+            .filter((item) => item && item.isOnline !== false)
+            .map((item) => String(item.id || item.vendorId || ''))
+            .filter(Boolean)
+        );
+        // Mark disconnected/non-server entries offline on live sync when server reports live partners
+        if (liveIds.size > 0) {
+          this.astrologers = this.astrologers.map((entry) =>
+            liveIds.has(String(entry.id))
+              ? entry
+              : { ...entry, isOnline: false, isLiveSocket: false, socketId: null }
+          );
+        }
+        list.forEach((item) => handlePartnerPresence(item));
+        if (list.length === 0) {
+          this.notify();
         }
       };
 
@@ -87,7 +105,12 @@ class TalkToAstroStore {
         if (offId) {
           const idx = this.astrologers.findIndex((a) => String(a.id) === offId);
           if (idx > -1) {
-            this.astrologers[idx] = { ...this.astrologers[idx], isOnline: false };
+            this.astrologers[idx] = {
+              ...this.astrologers[idx],
+              isOnline: false,
+              isLiveSocket: false,
+              socketId: null,
+            };
             this.notify();
           }
         }
@@ -124,6 +147,47 @@ class TalkToAstroStore {
     return this.astrologers;
   }
 
+  getOnlineAstrologers() {
+    const online = (this.astrologers || []).filter((a) => a && a.isOnline);
+    // Prioritize live WebSocket-verified partners over static seed entries
+    return online.sort((a, b) => Number(Boolean(b.isLiveSocket || b.socketId)) - Number(Boolean(a.isLiveSocket || a.socketId)));
+  }
+
+  resolveTargetAstrologer(preferredAstroOrId) {
+    const preferred =
+      typeof preferredAstroOrId === 'string'
+        ? this.getAstrologerById(preferredAstroOrId)
+        : preferredAstroOrId;
+    const onlineList = this.getOnlineAstrologers();
+    const liveVerified = onlineList.filter((a) => a.isLiveSocket || a.socketId);
+
+    if (preferred) {
+      const preferredInLive = liveVerified.find((a) => String(a.id) === String(preferred.id));
+      if (preferredInLive) {
+        return { astrologer: preferredInLive, wasFallback: false };
+      }
+      // If real live partner(s) exist on socket and preferred is NOT among them, route to online live partner
+      if (liveVerified.length > 0) {
+        return { astrologer: liveVerified[0], wasFallback: true };
+      }
+      if (preferred.isOnline) {
+        return { astrologer: preferred, wasFallback: false };
+      }
+    }
+
+    if (onlineList.length > 0) {
+      return {
+        astrologer: onlineList[0],
+        wasFallback: Boolean(preferred && String(onlineList[0].id) !== String(preferred.id)),
+      };
+    }
+
+    return {
+      astrologer: preferred || this.astrologers[0] || null,
+      wasFallback: false,
+    };
+  }
+
   getAstrologerById(id) {
     if (!id) return null;
     return this.astrologers.find((a) => String(a.id) === String(id));
@@ -156,6 +220,33 @@ class TalkToAstroStore {
     });
   }
 
+  // Wallet Sync Helpers (for AppContext / Backend)
+  setWalletFromServer(mainBalance = 0, transactions = []) {
+    const nextMain = Math.max(0, Number(mainBalance || 0));
+    this.wallet.mainBalance = Number.isFinite(nextMain) ? nextMain : 0;
+    this.wallet.bonusBalance = 0;
+    if (Array.isArray(transactions)) {
+      this.wallet.transactions = transactions.map((t, idx) => ({
+        id: t.id || `TX-${idx}`,
+        type: String(t.type || '').toLowerCase() === 'debit' ? 'DEBIT' : 'RECHARGE',
+        amount: Math.abs(Number(t.amount || 0)),
+        date: t.at || t.date || t.createdAt || 'आज',
+        desc: t.title || t.desc || t.reference || 'Wallet transaction',
+      }));
+    }
+    this.notify();
+  }
+
+  resetWallet() {
+    this.clearSession();
+    this.wallet = {
+      mainBalance: 0,
+      bonusBalance: 0,
+      transactions: [],
+    };
+    this.notify();
+  }
+
   // Wallet Recharge
   rechargeWallet(pack) {
     this.wallet.mainBalance += pack.amount;
@@ -172,7 +263,7 @@ class TalkToAstroStore {
   }
 
   // Deduct money per minute (default ₹5/min)
-  deductMoney(amount = 5, reason = 'Astro Consultation (1 min)') {
+  deductMoney(amount = 5, reason = 'Astro Consultation (1 min)', syncBackend = true) {
     if (this.wallet.mainBalance >= amount) {
       this.wallet.mainBalance -= amount;
     } else {
@@ -185,6 +276,11 @@ class TalkToAstroStore {
       date: 'आज (Today)',
       desc: reason,
     });
+    if (syncBackend) {
+      import('./api')
+        .then(({ WalletService }) => WalletService?.debit?.(amount, reason))
+        .catch(() => {});
+    }
     this.notify();
     return this.wallet.mainBalance;
   }
@@ -204,7 +300,9 @@ class TalkToAstroStore {
 
   // Initiate Single Unified "परामर्श" Session (Chat / Audio / Video)
   initiateSession({ astrologerId, astrologer, mode = 'chat', topic = 'परामर्श', rate = 5 }) {
-    const astro = astrologer || this.getAstrologerById(astrologerId);
+    const requested = astrologer || this.getAstrologerById(astrologerId);
+    const { astrologer: resolvedAstro } = this.resolveTargetAstrologer(requested || astrologerId);
+    const astro = resolvedAstro || requested;
     if (!astro) throw new Error('ज्योतिषी नहीं मिले');
 
     const totalBal = this.getTotalBalance();
@@ -214,6 +312,7 @@ class TalkToAstroStore {
 
     this.activeSession = {
       id: `SESS-${Date.now().toString().slice(-4)}`,
+      astrologerId: astro.id,
       astrologer: astro,
       mode, // chat | audio | video
       rate,

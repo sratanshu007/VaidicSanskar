@@ -10,6 +10,7 @@ import {
   Modal,
   Clipboard,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,13 +19,18 @@ import { panditBookingStore } from '../../services/panditBookingStore';
 import LiveTrackingMapView from '../../components/LiveTrackingMapView';
 import socket from '../../services/socket';
 import { API_URL } from '../../config/env';
-import { getAuthToken } from '../../services/api';
+import { getAuthToken, BookingService } from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
 
 export default function BookingStatusScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { showNotification } = useNotification();
-  const [booking, setBooking] = useState(panditBookingStore.getBooking());
+  const passedBooking = route?.params?.booking;
+  const passedBookingId = route?.params?.bookingId || passedBooking?.id || passedBooking?._id;
+  const [booking, setBooking] = useState(
+    () => passedBooking || panditBookingStore.getBooking()
+  );
+  const [hydrating, setHydrating] = useState(!booking);
   const [showCallModal, setShowCallModal] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState('Pooja procedure incomplete');
@@ -37,10 +43,30 @@ export default function BookingStatusScreen({ navigation, route }) {
   });
 
   useEffect(() => {
+    let mounted = true;
+    const syncFromServer = async () => {
+      try {
+        if (passedBooking) {
+          panditBookingStore.hydrateFromServer(passedBooking);
+        }
+        const srv = passedBookingId
+          ? await BookingService.detail(passedBookingId)
+          : await BookingService.active();
+        if (mounted && srv) {
+          const updated = panditBookingStore.hydrateFromServer(srv);
+          if (updated) setBooking({ ...updated });
+        }
+      } catch (_) {
+      } finally {
+        if (mounted) setHydrating(false);
+      }
+    };
+    syncFromServer();
+
     // 1. Reactive store subscription
     const unsub = panditBookingStore.subscribe((b) => {
-      setBooking(b ? { ...b } : null);
-      if (b && b.status === 'COMPLETED') {
+      if (mounted) setBooking(b ? { ...b } : null);
+      if (b && b.status === 'COMPLETED' && !route?.params?.fromHistory) {
         setTimeout(() => {
           navigation.replace('Review');
         }, 1200);
@@ -48,7 +74,7 @@ export default function BookingStatusScreen({ navigation, route }) {
     });
 
     // 2. Real-time Socket.IO room connection for live tracking updates
-    const bId = booking?.id || route?.params?.bookingId;
+    const bId = booking?.id || passedBookingId;
     if (bId) {
       socket.join(bId);
     }
@@ -82,6 +108,8 @@ export default function BookingStatusScreen({ navigation, route }) {
       const arrivedOtp = data?.startOtp || data?.booking?.startOtp;
       if (arrivedOtp) {
         panditBookingStore.setStartOtp(arrivedOtp);
+      } else {
+        syncFromServer();
       }
       showNotification({
         title: 'पंडित जी द्वार पर पहुँच गए! 🪔',
@@ -95,22 +123,26 @@ export default function BookingStatusScreen({ navigation, route }) {
       const compOtp = data?.completeOtp || data?.booking?.completeOtp;
       if (compOtp) {
         panditBookingStore.setCompleteOtp(compOtp);
+      } else {
+        syncFromServer();
       }
       showNotification({
         title: 'पूजा संपन्न अनुरोध 🌸',
-        message: 'पंडit जी ने पूजा समापन का अनुरोध किया है। कृपया समापन OTP साझा करें।',
+        message: 'पंडित जी ने पूजा समापन का अनुरोध किया है। कृपया समापन OTP साझा करें।',
         type: 'booking',
       });
     });
 
-    const unsubStarted = socket.on('booking:pooja_started', () => {
+    const onPoojaStarted = () => {
       showNotification({
         title: 'शुभ पूजा प्रारंभ! 🕉️',
         message: 'वैदिक मंत्रोच्चार के साथ आपकी पूजा आरंभ हो चुकी है।',
         type: 'booking',
       });
       panditBookingStore.setStarted();
-    });
+    };
+    const unsubStarted = socket.on('booking:pooja_started', onPoojaStarted);
+    const unsubSrvStarted = socket.on('booking:started', onPoojaStarted);
 
     const unsubCompleted = socket.on('booking:completed', () => {
       showNotification({
@@ -141,19 +173,29 @@ export default function BookingStatusScreen({ navigation, route }) {
       unsubArrived();
       unsubCompReq();
       unsubStarted();
+      unsubSrvStarted();
       unsubCompleted();
       unsubInstant();
       if (socket && bId) socket.leave(bId);
     };
-  }, [navigation, booking?.id, booking?.startOtp, booking?.completeOtp]);
+  }, [navigation, passedBookingId, booking?.id, booking?.startOtp, booking?.completeOtp]);
 
   if (!booking) {
     return (
-      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={s.subText}>No active booking found</Text>
-        <TouchableOpacity style={s.rebookBtn} onPress={() => navigation.navigate('PujaBrowse')}>
-          <Text style={s.rebookBtnText}>Book a Pooja</Text>
-        </TouchableOpacity>
+      <View style={[s.container, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
+        {hydrating ? (
+          <>
+            <ActivityIndicator size="large" color="#67101F" />
+            <Text style={[s.subText, { marginTop: 12 }]}>Loading live booking status...</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.subText}>No active booking found</Text>
+            <TouchableOpacity style={s.rebookBtn} onPress={() => navigation.navigate('PujaBrowse')}>
+              <Text style={s.rebookBtnText}>Book a Pooja</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }
@@ -239,9 +281,9 @@ export default function BookingStatusScreen({ navigation, route }) {
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={s.screenTitle}>
-            {isEnRoute ? 'Pandit on the Way' : isArrived ? 'Pandit Has Arrived' : isInProgress ? 'Pooja in Progress' : 'Booking Confirmed'}
+            {isCompleted ? 'Pooja Completed' : isEnRoute ? 'Pandit on the Way' : isArrived ? 'Pandit Has Arrived' : isInProgress ? 'Pooja in Progress' : 'Booking Confirmed'}
           </Text>
-          <Text style={s.screenSub}>#{booking.id} · {pooja?.name || 'Vaidic Pooja'}</Text>
+          <Text style={s.screenSub}>#{booking.id} · {pooja?.name || booking.ritualName || booking.poojaName || booking.title || 'Vaidic Pooja'}</Text>
         </View>
         <TouchableOpacity style={s.helpBtn} onPress={() => setShowDisputeModal(true)}>
           <MaterialCommunityIcons name="help-circle-outline" size={22} color="#D48B28" />
@@ -332,14 +374,14 @@ export default function BookingStatusScreen({ navigation, route }) {
             </Text>
 
             <View style={s.otpDigitsRow}>
-              {(booking.startOtp || '4892').split('').map((digit, idx) => (
+              {(booking.startOtp || '----').split('').map((digit, idx) => (
                 <View key={idx} style={s.otpBox}>
                   <Text style={s.otpDigit}>{digit}</Text>
                 </View>
               ))}
             </View>
 
-            <TouchableOpacity style={s.copyBtn} onPress={() => copyToClipboard(booking.startOtp || '4892')}>
+            <TouchableOpacity style={s.copyBtn} onPress={() => booking.startOtp && copyToClipboard(booking.startOtp)}>
               <MaterialCommunityIcons name="content-copy" size={15} color="#67101F" />
               <Text style={s.copyBtnText}>Copy OTP</Text>
             </TouchableOpacity>
@@ -368,7 +410,7 @@ export default function BookingStatusScreen({ navigation, route }) {
             </Text>
 
             <View style={s.otpDigitsRow}>
-              {(booking.completeOtp || '7391').split('').map((digit, idx) => (
+              {(booking.completeOtp || '----').split('').map((digit, idx) => (
                 <View key={idx} style={[s.otpBox, { borderColor: '#15803D', backgroundColor: '#F0FDF4' }]}>
                   <Text style={[s.otpDigit, { color: '#15803D' }]}>{digit}</Text>
                 </View>
@@ -387,7 +429,7 @@ export default function BookingStatusScreen({ navigation, route }) {
               />
               <View style={{ flex: 1, marginLeft: 14 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={s.panditName}>{pandit.name || 'Pandit Ramesh Shastri'}</Text>
+                  <Text style={s.panditName}>{pandit.name || 'Verified Pandit'}</Text>
                   <MaterialCommunityIcons name="check-decagram" size={17} color="#15803D" style={{ marginLeft: 4 }} />
                 </View>
                 <Text style={s.panditGurukul} numberOfLines={1}>
@@ -395,10 +437,10 @@ export default function BookingStatusScreen({ navigation, route }) {
                 </Text>
                 <View style={s.ratingRow}>
                   <Ionicons name="star" size={13} color="#D48B28" />
-                  <Text style={s.ratingStar}>{pandit.rating || '4.9'}</Text>
-                  <Text style={s.ratingCount}>({pandit.reviewsCount || 124} reviews)</Text>
+                  <Text style={s.ratingStar}>{pandit.rating || '0.0'}</Text>
+                  <Text style={s.ratingCount}>({pandit.reviewsCount || 0} reviews)</Text>
                   <Text style={s.dotSep}>•</Text>
-                  <Text style={s.expText}>{pandit.experienceYears || '12'} yrs exp</Text>
+                  <Text style={s.expText}>{pandit.experienceYears || '0'} yrs exp</Text>
                 </View>
               </View>
             </View>
@@ -431,15 +473,17 @@ export default function BookingStatusScreen({ navigation, route }) {
           <Text style={s.detailsCardTitle}>Booking Summary & Location</Text>
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Ritual:</Text>
-            <Text style={s.detailVal}>{pooja?.name || 'Satyanarayan Pooja'}</Text>
+            <Text style={s.detailVal}>{pooja?.name || booking.ritualName || booking.poojaName || booking.title || 'Satyanarayan Pooja'}</Text>
           </View>
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Muhurat:</Text>
-            <Text style={s.detailVal}>{booking.scheduledAt || 'Today'}</Text>
+            <Text style={s.detailVal}>
+              {booking.scheduledAt || (booking.scheduledDate ? `${booking.scheduledDate}${booking.scheduledTime ? ` • ${booking.scheduledTime}` : ''}` : 'Today')}
+            </Text>
           </View>
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Destination:</Text>
-            <Text style={s.detailVal} numberOfLines={2}>{booking.address || 'Address provided'}</Text>
+            <Text style={s.detailVal} numberOfLines={2}>{booking.address || booking.serviceAddress || 'Address provided'}</Text>
           </View>
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Samagri:</Text>
@@ -448,7 +492,7 @@ export default function BookingStatusScreen({ navigation, route }) {
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Total Dakshina:</Text>
             <Text style={[s.detailVal, { color: '#67101F', fontWeight: '800' }]}>
-              ₹ {booking.total?.toLocaleString('en-IN') || '2,500'}
+              ₹ {Number(booking.totalAmount ?? booking.total ?? booking.amount ?? 2500).toLocaleString('en-IN')}
             </Text>
           </View>
         </View>

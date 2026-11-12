@@ -234,13 +234,26 @@ export const PanditService = {
   detail: (id) => api.get(`${endpoints.vendorDetail}/${id}`),
 };
 
+const adminSuiteApiBase = () => {
+  const base = (SOCKET_URL || 'https://vaidic-sanskar-admin-suite.onrender.com').replace(/\/+$/, '');
+  return base.endsWith('/api') ? base : `${base}/api`;
+};
+
+const unwrapBookingList = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.bookings)) return payload.bookings;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.bookings)) return payload.data.bookings;
+  return [];
+};
+
 export const BookingService = {
-  create: (payload) => {
+  create: async (payload) => {
     const body = {
       vendorId: payload.vendorId || payload.panditId,
       slotId: payload.slotId,
       serviceType: payload.serviceType || 'pooja',
-      title: payload.title || payload.name || 'Vedic Pooja',
+      title: payload.title || payload.name || payload.ritualName || 'Vedic Pooja',
       description: payload.description || payload.notes || '',
       address: payload.address || payload.serviceAddress || '',
       city: payload.city || payload.serviceArea || '',
@@ -251,14 +264,126 @@ export const BookingService = {
       metadata: payload.metadata || { withSamagri: payload.withSamagri !== false },
       ...payload,
     };
+
+    // 1. Register booking once on Admin Suite / Matchmaking backend (avoid creating duplicate booking IDs/OTPs)
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.post(`${adminSuiteApiBase()}/bookings/create`, body, {
+        timeout: 12000,
+        headers,
+      });
+      if (suiteRes.data?.booking || suiteRes.data?.bookingId) {
+        return suiteRes.data;
+      }
+    } catch (_) {}
+
+    // 2. Fallback to primary backend only if step 1 did not create a booking
     return api.post(endpoints.createBooking, body);
   },
-  mine: () => api.get(endpoints.myBookings),
-  detail: (id) => api.get(`${endpoints.bookingStatus}/${id}`),
+  mine: async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const merged = [];
+    const seen = new Set();
+
+    const pushAll = (items) => {
+      items.forEach((item) => {
+        if (!item) return;
+        const id = String(item.id || item._id || item.bookingId || '');
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        merged.push(item);
+      });
+    };
+
+    // Query active matchmaking backend (/bookings/my + /partner/bookings fallback) & primary backend
+    const [suiteRes, partnerRes, primaryRes] = await Promise.allSettled([
+      axios.get(`${adminSuiteApiBase()}/bookings/my`, { timeout: 10000, headers }),
+      axios.get(`${adminSuiteApiBase()}/partner/bookings`, { timeout: 10000, headers }),
+      api.get(endpoints.myBookings),
+    ]);
+
+    if (suiteRes.status === 'fulfilled') {
+      pushAll(unwrapBookingList(suiteRes.value?.data));
+    }
+    if (partnerRes.status === 'fulfilled') {
+      pushAll(unwrapBookingList(partnerRes.value?.data));
+    }
+    if (primaryRes.status === 'fulfilled') {
+      pushAll(unwrapBookingList(primaryRes.value));
+    }
+
+    merged.sort((a, b) => {
+      const ta = new Date(a?.updatedAt || a?.completedAt || a?.createdAt || 0).getTime() || 0;
+      const tb = new Date(b?.updatedAt || b?.completedAt || b?.createdAt || 0).getTime() || 0;
+      return tb - ta;
+    });
+    return merged;
+  },
+  active: async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.get(`${adminSuiteApiBase()}/bookings/active`, {
+        timeout: 8000,
+        headers,
+      });
+      const b = suiteRes.data?.booking || suiteRes.data?.data;
+      if (b) return b;
+    } catch (_) {}
+    try {
+      const list = await BookingService.mine();
+      return (
+        list.find((item) => {
+          const st = String(item?.status || '').toUpperCase();
+          return st && st !== 'COMPLETED' && st !== 'CANCELLED' && !st.startsWith('CANCELLED_');
+        }) || null
+      );
+    } catch (_) {
+      return null;
+    }
+  },
+  detail: async (id) => {
+    if (!id) return null;
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.get(`${adminSuiteApiBase()}/bookings/${id}`, {
+        timeout: 8000,
+        headers,
+      });
+      const b = suiteRes.data?.booking || suiteRes.data?.data;
+      if (b) return b;
+    } catch (_) {}
+    try {
+      const partnerRes = await axios.get(`${adminSuiteApiBase()}/partner/bookings`, {
+        timeout: 8000,
+        headers,
+      });
+      const found = unwrapBookingList(partnerRes.data).find(
+        (item) => String(item?.id || item?._id || item?.bookingId || '') === String(id)
+      );
+      if (found) return found;
+    } catch (_) {}
+    try {
+      const res = await api.get(`${endpoints.bookingStatus}/${id}`);
+      return res?.booking || res?.data || res;
+    } catch (_) {
+      return null;
+    }
+  },
   generateServiceOtp: (id) => api.post(`${endpoints.bookingStatus}/${id}/service-otp`),
   verifyServiceOtp: (id, otp) =>
     api.put(`${endpoints.bookingStatus}/${id}/verify-service-otp`, { otp }),
-  cancel: (id, reason) => api.put(`${endpoints.bookingStatus}/${id}/cancel`, { reason }),
+  cancel: async (id, reason) => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.post(
+        `${adminSuiteApiBase()}/bookings/${id}/cancel`,
+        { reason },
+        { timeout: 8000, headers }
+      );
+      if (suiteRes.data?.success) return suiteRes.data;
+    } catch (_) {}
+    return api.put(`${endpoints.bookingStatus}/${id}/cancel`, { reason });
+  },
   reschedule: (id, data) => api.put(`${endpoints.bookingStatus}/${id}/reschedule`, data),
 };
 
@@ -304,11 +429,54 @@ export const AuthService = {
 };
 
 export const WalletService = {
-  get: () => api.get(endpoints.wallet),
-  balance: () => api.get(endpoints.walletBalance),
-  ledger: () => api.get(endpoints.walletLedger),
-  credit: (amount, reference) => api.post(endpoints.walletCredit, { amount, reference }),
-  debit: (amount, reference) => api.post(endpoints.walletDebit, { amount, reference }),
+  get: async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.get(`${adminSuiteApiBase()}/wallet`, { timeout: 6000, headers });
+      if (suiteRes.data) return suiteRes.data;
+    } catch (_) {}
+    return api.get(endpoints.wallet);
+  },
+  balance: async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.get(`${adminSuiteApiBase()}/wallet/balance`, { timeout: 6000, headers });
+      if (suiteRes.data) return suiteRes.data;
+    } catch (_) {}
+    return api.get(endpoints.walletBalance);
+  },
+  ledger: async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.get(`${adminSuiteApiBase()}/wallet/ledger`, { timeout: 6000, headers });
+      if (suiteRes.data) return suiteRes.data;
+    } catch (_) {}
+    return api.get(endpoints.walletLedger);
+  },
+  credit: async (amount, reference) => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.post(
+        `${adminSuiteApiBase()}/wallet/add`,
+        { amount, reference, method: reference },
+        { timeout: 6000, headers }
+      );
+      if (suiteRes.data) return suiteRes.data;
+    } catch (_) {}
+    return api.post(endpoints.walletCredit, { amount, reference });
+  },
+  debit: async (amount, reference) => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    try {
+      const suiteRes = await axios.post(
+        `${adminSuiteApiBase()}/wallet/deduct`,
+        { amount, reference, title: reference },
+        { timeout: 6000, headers }
+      );
+      if (suiteRes.data) return suiteRes.data;
+    } catch (_) {}
+    return api.post(endpoints.walletDebit, { amount, reference });
+  },
 };
 
 export const PujaService = {

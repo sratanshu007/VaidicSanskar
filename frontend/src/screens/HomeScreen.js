@@ -127,7 +127,7 @@ const MORE_SERVICES = [
   },
 ];
 
-import { PujaService } from '../services/api';
+import { PujaService, BookingService } from '../services/api';
 import { panditBookingStore } from '../services/panditBookingStore';
 
 const CITIES = ['New Delhi', 'Varanasi', 'Haridwar', 'Ayodhya', 'Ujjain', 'Mathura', 'Prayagraj'];
@@ -188,6 +188,15 @@ export default function HomeScreen({ navigation }) {
     const unsub = panditBookingStore.subscribe((b) => {
       setActiveBooking(b ? { ...b } : null);
     });
+
+    // Hydrate active booking from backend so Home tracker matches Partner status
+    BookingService.active()
+      .then((b) => {
+        if (b && b.status && b.status !== 'COMPLETED' && !String(b.status).startsWith('CANCELLED')) {
+          panditBookingStore.hydrateFromServer(b);
+        }
+      })
+      .catch(() => {});
 
     // Fetch dynamic poojas from backend database
     PujaService.list()

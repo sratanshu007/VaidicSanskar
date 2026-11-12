@@ -20,10 +20,10 @@ function normalize(apiItem) {
   return {
     id: String(apiItem.id ?? apiItem._id),
     name: apiItem.name ?? apiItem.pandit_name,
-    exp: apiItem.experience ? `${apiItem.experience} yrs` : (apiItem.exp || '10+ yrs'),
-    rating: Number(apiItem.rating ?? apiItem.averageRating ?? 4.8),
+    exp: apiItem.experience ? `${apiItem.experience} yrs` : (apiItem.exp || '0 yrs'),
+    rating: Number(apiItem.rating ?? apiItem.averageRating ?? 0),
     lang: Array.isArray(apiItem.languages) ? apiItem.languages.join(', ') : (apiItem.languages ?? apiItem.lang ?? 'Hindi, Sanskrit'),
-    price: Number(apiItem.price ?? apiItem.charge ?? apiItem.audioRate ?? apiItem.chatRate ?? 2100),
+    price: Number(apiItem.price ?? apiItem.charge ?? apiItem.audioRate ?? apiItem.chatRate ?? 0),
     specialities: Array.isArray(apiItem.specialities) ? apiItem.specialities : (apiItem.skills || ['वैदिक पूजा', 'हवन']),
     city: apiItem.city ?? 'वाराणसी',
     photo: apiItem.profileImage || apiItem.photo || 'vedic_pandit',
@@ -34,17 +34,18 @@ export default function PanditListScreen({ navigation }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [usingMock, setUsingMock] = useState(false);
 
   const load = async () => {
     try {
       const res = await PanditService.list();
       const raw = Array.isArray(res) ? res : (res?.vendors ?? res?.data ?? res?.pandits ?? []);
-      setData((raw || []).map(normalize));
-      setUsingMock(false);
+      if (raw && raw.length > 0) {
+        setData(raw.map(normalize));
+      } else {
+        setData([]);
+      }
     } catch (e) {
       setData([]);
-      setUsingMock(false);
     } finally {
       setLoading(false);
       setRefreshing(false);

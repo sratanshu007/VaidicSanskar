@@ -20,6 +20,7 @@
     },
     "android": {
       "package": "com.deificdigital.paramparauser",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "INTERNET",
         "ACCESS_FINE_LOCATION",

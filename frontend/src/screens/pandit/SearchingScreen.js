@@ -126,7 +126,13 @@ export default function SearchingScreen({ navigation, route }) {
           type: 'pandit',
         });
         panditBookingStore.acceptBooking(data.assignedVendor || data.vendor || { name: 'Verified Pandit' });
-        navigation.replace('BookingStatus', { bookingId: data.id || data.requestId || bookingId });
+        if (data.booking || data.startOtp || data.completeOtp) {
+          panditBookingStore.hydrateFromServer(data.booking || data);
+        }
+        navigation.replace('BookingStatus', {
+          bookingId: data.id || data.bookingId || data.requestId || bookingId,
+          booking: data.booking || data,
+        });
       }
     };
 
@@ -154,10 +160,11 @@ export default function SearchingScreen({ navigation, route }) {
         }
         if (b) {
           const sUpper = String(b.status || '').toUpperCase();
-          if (['ACCEPTED', 'ARRIVED', 'IN_PROGRESS', 'ON_THE_WAY'].includes(sUpper)) {
+          if (['ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'POOJA_STARTED', 'ON_THE_WAY'].includes(sUpper)) {
             clearInterval(pollInterval);
             panditBookingStore.acceptBooking(b.assignedVendor || b.vendor || { name: 'Verified Pandit' });
-            navigation.replace('BookingStatus', { bookingId: b._id || b.id || bId });
+            panditBookingStore.hydrateFromServer(b);
+            navigation.replace('BookingStatus', { bookingId: b._id || b.id || bId, booking: b });
           }
         }
       } catch (e) {}

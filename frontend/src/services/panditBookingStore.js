@@ -6,6 +6,11 @@
  * Alternate: CANCELLED_BY_YAJMAN, CANCELLED_BY_PANDIT, NO_PANDIT_FOUND, DISPUTED
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const ACTIVE_BOOKING_KEY = '@vaidic_user_active_booking_v1';
+const BOOKING_HISTORY_KEY = '@vaidic_user_booking_history_v1';
+
 export const POOJA_TYPES = [];
 
 export const DEMO_PANDIT = null;
@@ -13,10 +18,89 @@ export const DEMO_PANDIT = null;
 class PanditBookingStore {
   constructor() {
     this.booking = null;
+    this.history = [];
     this.listeners = new Set();
     this.timerInterval = null;
     this.dispatchTimeout = null;
     this.waveInterval = null;
+    this._hydrateFromStorage();
+  }
+
+  async _hydrateFromStorage() {
+    try {
+      const [rawActive, rawHist] = await Promise.all([
+        AsyncStorage.getItem(ACTIVE_BOOKING_KEY),
+        AsyncStorage.getItem(BOOKING_HISTORY_KEY),
+      ]);
+      if (rawHist) {
+        const parsed = JSON.parse(rawHist);
+        if (Array.isArray(parsed)) this.history = parsed;
+      }
+      if (!this.booking && rawActive) {
+        const parsedActive = JSON.parse(rawActive);
+        if (parsedActive && typeof parsedActive === 'object') {
+          this.booking = parsedActive;
+          this.notify(false);
+        }
+      }
+    } catch (_) {}
+  }
+
+  _persist() {
+    try {
+      if (this.booking) {
+        AsyncStorage.setItem(ACTIVE_BOOKING_KEY, JSON.stringify(this.booking)).catch(() => {});
+        const id = String(this.booking.id || this.booking._id || '');
+        if (id) {
+          const rest = (this.history || []).filter((h) => String(h.id || h._id) !== id);
+          this.history = [this.booking, ...rest].slice(0, 30);
+          AsyncStorage.setItem(BOOKING_HISTORY_KEY, JSON.stringify(this.history)).catch(() => {});
+        }
+      } else {
+        AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  getHistory() {
+    return Array.isArray(this.history) ? this.history : [];
+  }
+
+  hydrateFromServer(srv) {
+    if (!srv || typeof srv !== 'object') return null;
+    const rawStatus = String(srv.status || 'ACCEPTED').toUpperCase();
+    const mappedStatus =
+      rawStatus === 'PENDING_ACCEPTANCE'
+        ? 'SEARCHING'
+        : rawStatus === 'POOJA_STARTED'
+        ? 'IN_PROGRESS'
+        : rawStatus === 'EN_ROUTE'
+        ? 'ON_THE_WAY'
+        : rawStatus;
+
+    const merged = {
+      ...(this.booking || {}),
+      ...srv,
+      id: String(srv.id || srv._id || this.booking?.id || ''),
+      status: mappedStatus,
+      pooja: srv.pooja || this.booking?.pooja || {
+        name: srv.ritualName || srv.poojaName || srv.title || 'वैदिक पूजा',
+        price: srv.dakshina || srv.totalAmount || srv.amount || 2500,
+      },
+      pandit: srv.assignedVendor || srv.vendor || srv.pandit || this.booking?.pandit || null,
+      yajmanName: srv.yajmanName || srv.user?.name || this.booking?.yajmanName || 'Yajman',
+      address: srv.address || srv.serviceAddress || this.booking?.address || 'Live Location',
+      total: Number(srv.totalAmount || srv.total || srv.amount || this.booking?.total || 2500),
+      dakshina: Number(srv.dakshina || srv.serviceCharge || srv.totalAmount || srv.amount || 2500),
+      startOtp: srv.startOtp || this.booking?.startOtp,
+      completeOtp: srv.completeOtp || this.booking?.completeOtp,
+      chatMessages: Array.isArray(srv.chatMessages)
+        ? srv.chatMessages
+        : this.booking?.chatMessages || [],
+    };
+    this.booking = merged;
+    this.notify();
+    return merged;
   }
 
   getBooking() {
@@ -50,7 +134,8 @@ class PanditBookingStore {
     return () => this.listeners.delete(callback);
   }
 
-  notify() {
+  notify(shouldPersist = true) {
+    if (shouldPersist) this._persist();
     this.listeners.forEach((fn) => {
       try {
         fn(this.booking);
@@ -427,6 +512,15 @@ class PanditBookingStore {
   reset() {
     this.clearTimers();
     this.booking = null;
+    this.notify();
+  }
+
+  clearLocalCache() {
+    this.clearTimers();
+    this.booking = null;
+    this.history = [];
+    AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => {});
+    AsyncStorage.removeItem(BOOKING_HISTORY_KEY).catch(() => {});
     this.notify();
   }
 }

@@ -20,17 +20,33 @@ import socket from '../../services/socket';
 
 export default function CallScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const astrologer = route.params?.astrologer || talkToAstroStore.getAstrologers()[0];
+  const [astrologer, setAstrologer] = useState(
+    () =>
+      route.params?.astrologer ||
+      talkToAstroStore.resolveTargetAstrologer(null).astrologer ||
+      talkToAstroStore.getAstrologers()[0]
+  );
   const mode = route.params?.mode || 'audio'; // audio | video
-  const channelName = useRef(route.params?.channelName || `vartalap_${astrologer?.id || 'astro'}_${Date.now().toString().slice(-6)}`).current;
+  const channelName = useRef(
+    route.params?.channelName || `vartalap_${astrologer?.id || 'ASTRO-7890'}_${Date.now().toString().slice(-6)}`
+  ).current;
 
   const [session, setSession] = useState(talkToAstroStore.getActiveSession());
+  const [callAccepted, setCallAccepted] = useState(Boolean(route.params?.alreadyConnected));
   const [elapsed, setElapsed] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(true);
   const [isVideoCamOff, setIsVideoCamOff] = useState(mode === 'audio');
   const [isFrontCam, setIsFrontCam] = useState(true);
-  const [liveAgoraToken, setLiveAgoraToken] = useState(null);
+  const [liveAgoraToken, setLiveAgoraToken] = useState(route.params?.agoraToken || null);
+  const [liveAgoraAppId, setLiveAgoraAppId] = useState(route.params?.agoraAppId || null);
+  const [activeRecipientId, setActiveRecipientId] = useState(astrologer?.id || 'ASTRO-7890');
+  const [agoraStatus, setAgoraStatus] = useState({
+    stage: 'connecting',
+    micActive: false,
+    remoteJoined: false,
+    error: null,
+  });
 
   // Modals
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -40,31 +56,119 @@ export default function CallScreen({ navigation, route }) {
   const [reviewText, setReviewText] = useState('');
 
   const rate = astrologer?.rates?.[mode] || astrologer?.[`${mode}Rate`] || 5;
-  const timerRef = useRef();
+  const timerRef = useRef(null);
+  const hasEndedRef = useRef(false);
 
   useEffect(() => {
-    // Initiate live Agora call signaling to Astrologer via Socket
-    socket.emit('astro:call:initiate', {
-      channelName,
-      recipientId: astrologer?.id || 'V4569',
-      caller: { id: 'U101', name: 'Sratanshu Shukla', phone: '+91 63936 20028' },
-      mode,
-      rate,
-    });
+    // Only initiate signaling if this call was not already accepted from profile
+    if (!route.params?.alreadyConnected) {
+      socket.emit('user:join', { userId: 'U101' });
+      const { astrologer: targetAstro } = talkToAstroStore.resolveTargetAstrologer(astrologer);
+      const initialRecipient = targetAstro?.id || astrologer?.id || 'ASTRO-7890';
+      setActiveRecipientId(initialRecipient);
+      socket.emit('astro:call:initiate', {
+        channelName,
+        recipientId: initialRecipient,
+        caller: {
+          id: 'U101',
+          name: 'स्रतांशु शुक्ला (यजमान)',
+          phone: '+91 63936 20028',
+          mode,
+          rate,
+          birthDetails: {
+            dob: '14-08-1995',
+            tob: '07:30 AM',
+            pob: 'वाराणसी, उत्तर प्रदेश',
+            gender: 'पुरुष (Male)',
+            kundali: {
+              lagna: 'सिंह (Leo)',
+              rashi: 'वृश्चिक (Scorpio)',
+              nakshatra: 'अनुराधा (चरण 2)',
+              dasha: 'बुध महादशा • शुक्र अंतर्दशा',
+              favorablePlanets: 'सूर्य, मंगल, गुरु',
+              remedyRecommended: 'आदित्य हृदय स्तोत्र पाठ, सूर्य को अर्घ्य',
+            },
+          },
+        },
+        mode,
+        rate,
+        topic: 'परामर्श',
+      });
+    }
 
     const handleRemoteEnd = () => {
-      handleEndCall();
-    };
-
-    const handleCallConnected = (payload) => {
-      if (payload?.agoraToken) {
-        setLiveAgoraToken(payload.agoraToken);
+      if (!hasEndedRef.current) {
+        handleEndCall(false);
       }
     };
 
-    socket.on('astro:call:ended', handleRemoteEnd);
-    socket.on('astro:call:connected', handleCallConnected);
+    const handleCallConnected = (payload) => {
+      setCallAccepted(true);
+      if (payload?.agoraToken) {
+        setLiveAgoraToken(payload.agoraToken);
+      }
+      if (payload?.agoraAppId) {
+        setLiveAgoraAppId(payload.agoraAppId);
+      }
+      if (payload?.astrologer) {
+        setAstrologer((prev) => ({ ...(prev || {}), ...payload.astrologer, isOnline: true }));
+      }
+      if (payload?.vendorId || payload?.astrologer?.id) {
+        setActiveRecipientId(payload.vendorId || payload.astrologer.id);
+      }
+    };
 
+    const handleCallRouted = (payload) => {
+      if (payload?.recipientId) {
+        setActiveRecipientId(payload.recipientId);
+      }
+      if (payload?.astrologer) {
+        setAstrologer((prev) => ({ ...(prev || {}), ...payload.astrologer, isOnline: true }));
+      }
+    };
+
+    const handleCallDeclined = () => {
+      if (hasEndedRef.current) return;
+      hasEndedRef.current = true;
+      clearInterval(timerRef.current);
+      Alert.alert(
+        'कॉल अस्वीकृत',
+        'ज्योतिषाचार्य ने अभी कॉल अस्वीकार कर दी है। कृपया अन्य ऑनलाइन ज्योतिषी से प्रयास करें।',
+        [{ text: 'ठीक है', onPress: () => navigation.goBack() }]
+      );
+    };
+
+    const handleCallUnavailable = (payload) => {
+      if (hasEndedRef.current) return;
+      hasEndedRef.current = true;
+      clearInterval(timerRef.current);
+      Alert.alert(
+        'ज्योतिषी उपलब्ध नहीं',
+        payload?.message || 'वर्तमान में कोई भी ज्योतिषी ऑनलाइन उपलब्ध नहीं है।',
+        [{ text: 'ठीक है', onPress: () => navigation.goBack() }]
+      );
+    };
+
+    const unsubEnd = socket.on('astro:call:ended', handleRemoteEnd);
+    const unsubConn = socket.on('astro:call:connected', handleCallConnected);
+    const unsubRoute = socket.on('astro:call:routed', handleCallRouted);
+    const unsubDecline = socket.on('astro:call:declined', handleCallDeclined);
+    const unsubUnavail = socket.on('astro:call:unavailable', handleCallUnavailable);
+
+    return () => {
+      clearInterval(timerRef.current);
+      if (typeof unsubEnd === 'function') unsubEnd();
+      if (typeof unsubConn === 'function') unsubConn();
+      if (typeof unsubRoute === 'function') unsubRoute();
+      if (typeof unsubDecline === 'function') unsubDecline();
+      if (typeof unsubUnavail === 'function') unsubUnavail();
+    };
+  }, []);
+
+  // Run billing clock only once call is accepted or remote participant joins audio/video
+  useEffect(() => {
+    if (!callAccepted && !agoraStatus.remoteJoined) return undefined;
+    clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
@@ -74,12 +178,8 @@ export default function CallScreen({ navigation, route }) {
         return next;
       });
     }, 1000);
-
-    return () => {
-      clearInterval(timerRef.current);
-      socket.off('astro:call:ended', handleRemoteEnd);
-    };
-  }, []);
+    return () => clearInterval(timerRef.current);
+  }, [callAccepted, agoraStatus.remoteJoined, rate, mode]);
 
   const formatTimer = (sec) => {
     const m = Math.floor(sec / 60);
@@ -92,14 +192,18 @@ export default function CallScreen({ navigation, route }) {
   const remainingBal = talkToAstroStore.getTotalBalance();
   const remainingMinutes = Math.max(0, Math.floor(remainingBal / rate));
 
-  const handleEndCall = () => {
+  const handleEndCall = (notifyRemote = true) => {
+    if (hasEndedRef.current) return;
+    hasEndedRef.current = true;
     clearInterval(timerRef.current);
-    socket.emit('astro:call:end', {
-      channelName,
-      callerId: 'U101',
-      recipientId: astrologer?.id || 'V4569',
-    });
-    talkToAstroStore.endSession('USER_ENDED');
+    if (notifyRemote) {
+      socket.emit('astro:call:end', {
+        channelName,
+        callerId: 'U101',
+        recipientId: activeRecipientId || astrologer?.id || 'ASTRO-7890',
+      });
+    }
+    talkToAstroStore.endSession(notifyRemote ? 'USER_ENDED' : 'REMOTE_ENDED');
     setShowReviewModal(true);
   };
 
@@ -130,33 +234,71 @@ export default function CallScreen({ navigation, route }) {
       style={[
         s.container,
         {
-          backgroundColor: isVideo ? '#0D0614' : '#FAF7F0',
+          backgroundColor: '#0D0614',
           paddingTop: Math.max(insets.top, 16) + 8,
           paddingBottom: Math.max(insets.bottom, 20) + 8,
-          paddingHorizontal: isVideo ? 12 : 16,
+          paddingHorizontal: 12,
         },
       ]}
     >
       {/* Top Floating Meter */}
-      <View style={[s.topFloatingMeter, isVideo && s.topFloatingMeterDark]}>
+      <View style={[s.topFloatingMeter, s.topFloatingMeterDark]}>
         <View style={s.meterItem}>
-          <MaterialCommunityIcons name="timer-sand" size={16} color={isVideo ? colors.gold : colors.primary} />
-          <Text style={[s.meterText, isVideo && { color: '#FFFFFF' }]}>{formatTimer(elapsed)}</Text>
+          <MaterialCommunityIcons name="timer-sand" size={16} color={colors.gold || '#D48B28'} />
+          <Text style={[s.meterText, { color: '#FFFFFF' }]}>{formatTimer(elapsed)}</Text>
         </View>
-        <View style={[s.meterDivider, isVideo && { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
+        <View style={[s.meterDivider, { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
         <View style={s.meterItem}>
-          <MaterialCommunityIcons name="wallet-outline" size={16} color={isVideo ? colors.gold : colors.primary} />
-          <Text style={[s.meterText, isVideo && { color: '#FFFFFF' }]}>₹{rate}/min</Text>
+          <MaterialCommunityIcons name="wallet-outline" size={16} color={colors.gold || '#D48B28'} />
+          <Text style={[s.meterText, { color: '#FFFFFF' }]}>₹{rate}/min</Text>
         </View>
-        <View style={[s.meterDivider, isVideo && { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
+        <View style={[s.meterDivider, { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
         <TouchableOpacity
-          style={[s.rechargeQuickChip, isVideo && { backgroundColor: 'rgba(230, 126, 0, 0.25)', borderWidth: 1, borderColor: colors.gold }]}
+          style={[s.rechargeQuickChip, { backgroundColor: 'rgba(230, 126, 0, 0.25)', borderWidth: 1, borderColor: colors.gold || '#D48B28' }]}
           onPress={() => setShowRechargeModal(true)}
         >
-          <Text style={[s.rechargeQuickChipText, isVideo && { color: colors.goldLight }]}>
+          <Text style={[s.rechargeQuickChipText, { color: colors.goldLight || '#F6DFB8' }]}>
             ~{remainingMinutes}m शेष (+ रीचार्ज)
           </Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Live Connection State Pill */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          alignSelf: 'center',
+          backgroundColor: callAccepted ? 'rgba(34, 197, 94, 0.16)' : 'rgba(245, 158, 11, 0.18)',
+          borderColor: callAccepted ? 'rgba(74, 222, 128, 0.4)' : 'rgba(251, 191, 36, 0.45)',
+          borderWidth: 1,
+          borderRadius: 14,
+          paddingHorizontal: 12,
+          paddingVertical: 5,
+          marginTop: 6,
+          marginBottom: 4,
+          gap: 6,
+        }}
+      >
+        <View
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: agoraStatus.remoteJoined ? '#4ADE80' : callAccepted ? '#38BDF8' : '#FBBF24',
+          }}
+        />
+        <Text style={{ color: '#FBF7F0', fontSize: 11.5, fontWeight: '700' }}>
+          {!callAccepted
+            ? 'रिंग हो रही है... ज्योतिषाचार्य की प्रतीक्षा'
+            : agoraStatus.remoteJoined
+            ? mode === 'audio'
+              ? 'लाइव वॉइस कॉल सक्रिय • दोनों पक्ष जुड़े'
+              : 'लाइव वीडियो कॉल सक्रिय'
+            : agoraStatus.micActive
+            ? 'माइक चालू • लाइव ऑडियो जुड़ गया'
+            : 'कॉल स्वीकृत • लाइव चैनल से जुड़ रहे हैं...'}
+        </Text>
       </View>
 
       {/* Main Video / Audio Center Stage Powered by Agora */}
@@ -164,23 +306,26 @@ export default function CallScreen({ navigation, route }) {
         <AgoraCallView
           channelName={channelName}
           mode={mode}
+          appId={liveAgoraAppId}
           token={liveAgoraToken}
           isMuted={isMuted}
           isSpeaker={isSpeaker}
           isVideoCamOff={isVideoCamOff}
           isFrontCam={isFrontCam}
-          remoteName={astrologer.name}
-          remotePhoto={astrologer.photo}
+          remoteName={astrologer?.name || 'ज्योतिषाचार्य'}
+          remotePhoto={astrologer?.photo}
           role="user"
-          onCallEnded={handleEndCall}
+          onCallConnected={() => setCallAccepted(true)}
+          onStatusChange={(nextStatus) => setAgoraStatus((prev) => ({ ...prev, ...nextStatus }))}
+          onCallEnded={() => handleEndCall(false)}
         />
       </View>
 
       {/* Shared Kundali Info Card */}
-      <View style={[s.kundaliSnippetCard, isVideo && s.kundaliSnippetCardDark]}>
-        <MaterialCommunityIcons name="om" size={15} color={isVideo ? colors.gold : colors.primary} />
-        <Text style={[s.kundaliSnippetText, isVideo && { color: '#FFECCC' }]} numberOfLines={1}>
-          साझा जन्म विवरण: रमेश कुमार • सिंह लग्न • वृश्चिक राशि
+      <View style={[s.kundaliSnippetCard, s.kundaliSnippetCardDark]}>
+        <MaterialCommunityIcons name="om" size={15} color={colors.gold || '#D48B28'} />
+        <Text style={[s.kundaliSnippetText, { color: '#FFECCC' }]} numberOfLines={1}>
+          साझा जन्म विवरण: स्रतांशु शुक्ला • सिंह लग्न • वृश्चिक राशि
         </Text>
       </View>
 
@@ -188,60 +333,46 @@ export default function CallScreen({ navigation, route }) {
       <View style={s.controlsBar}>
         {/* Mute Button */}
         <TouchableOpacity
-          style={[
-            s.ctrlCircle,
-            isVideo && s.ctrlCircleDark,
-            isMuted && s.ctrlCircleActive,
-          ]}
+          style={[s.ctrlCircle, s.ctrlCircleDark, isMuted && s.ctrlCircleActive]}
           onPress={() => setIsMuted(!isMuted)}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons
             name={isMuted ? 'microphone-off' : 'microphone'}
-            size={22}
-            color={isMuted ? '#FFFFFF' : isVideo ? '#FFFFFF' : colors.text}
+            size={20}
+            color="#FFFFFF"
           />
+          <Text style={s.ctrlLabel}>{isMuted ? 'म्यूट' : 'माइक'}</Text>
         </TouchableOpacity>
 
         {/* Speaker Button */}
         <TouchableOpacity
-          style={[
-            s.ctrlCircle,
-            isVideo && s.ctrlCircleDark,
-            isSpeaker && s.ctrlCircleActive,
-          ]}
+          style={[s.ctrlCircle, s.ctrlCircleDark, isSpeaker && s.ctrlCircleActive]}
           onPress={() => setIsSpeaker(!isSpeaker)}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons
             name={isSpeaker ? 'volume-high' : 'volume-medium'}
-            size={22}
-            color={isSpeaker ? '#FFFFFF' : isVideo ? '#FFFFFF' : colors.text}
+            size={20}
+            color="#FFFFFF"
           />
-        </TouchableOpacity>
-
-        {/* Hang Up Button */}
-        <TouchableOpacity style={s.hangUpBtn} onPress={handleEndCall} activeOpacity={0.85}>
-          <MaterialCommunityIcons name="phone-hangup" size={26} color="#FFFFFF" />
+          <Text style={s.ctrlLabel}>{isSpeaker ? 'स्पीकर ON' : 'स्पीकर'}</Text>
         </TouchableOpacity>
 
         {/* Video Camera Controls (if in video mode) */}
         {isVideo && (
           <>
             <TouchableOpacity
-              style={[
-                s.ctrlCircle,
-                s.ctrlCircleDark,
-                isVideoCamOff && s.ctrlCircleActive,
-              ]}
+              style={[s.ctrlCircle, s.ctrlCircleDark, isVideoCamOff && s.ctrlCircleActive]}
               onPress={() => setIsVideoCamOff(!isVideoCamOff)}
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons
                 name={isVideoCamOff ? 'video-off' : 'video'}
-                size={22}
+                size={20}
                 color="#FFFFFF"
               />
+              <Text style={s.ctrlLabel}>{isVideoCamOff ? 'कैमरा बंद' : 'कैमरा'}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -249,10 +380,17 @@ export default function CallScreen({ navigation, route }) {
               onPress={() => setIsFrontCam(!isFrontCam)}
               activeOpacity={0.8}
             >
-              <MaterialCommunityIcons name="camera-flip" size={22} color="#FFFFFF" />
+              <MaterialCommunityIcons name="camera-flip" size={20} color="#FFFFFF" />
+              <Text style={s.ctrlLabel}>फ्लिप</Text>
             </TouchableOpacity>
           </>
         )}
+
+        {/* Hang Up Button */}
+        <TouchableOpacity style={s.hangUpBtn} onPress={() => handleEndCall(true)} activeOpacity={0.85}>
+          <MaterialCommunityIcons name="phone-hangup" size={24} color="#FFFFFF" />
+          <Text style={s.hangUpLabel}>काटें</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Post-Call Review & Bill Modal */}
@@ -408,6 +546,9 @@ const s = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 20,
+    overflow: 'hidden',
+    marginVertical: 6,
   },
   audioAvatarStage: {
     alignItems: 'center',
@@ -531,39 +672,54 @@ const s = StyleSheet.create({
   controlsBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
+    justifyContent: 'space-evenly',
     width: '100%',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    paddingTop: 8,
     zIndex: 20,
   },
   ctrlCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#ECE3D7',
-    ...shadow(2),
+    borderColor: 'rgba(255, 255, 255, 0.22)',
   },
   ctrlCircleDark: {
     backgroundColor: 'rgba(255, 255, 255, 0.18)',
     borderColor: 'rgba(255, 255, 255, 0.25)',
   },
   ctrlCircleActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#67101F',
+    borderColor: '#D48B28',
+  },
+  ctrlLabel: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 2,
   },
   hangUpBtn: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: colors.danger,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#D13939',
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow(4),
+    shadowColor: '#D13939',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  hangUpLabel: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 2,
   },
   modalOverlay: {
     flex: 1,

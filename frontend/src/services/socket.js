@@ -25,12 +25,24 @@ class SocketService {
   }
 
   connect(token) {
-    if (this.socket && this.connected) return;
+    const authToken = token || getAuthToken();
+    if (this.socket && this.connected) {
+      if (authToken) this.socket.auth = { token: authToken };
+      this.socket.emit('user:join', { userId: this.activeUserId || 'U101' });
+      this.socket.emit('astro:get:online');
+      return;
+    }
+    if (this.socket) {
+      if (authToken) this.socket.auth = { token: authToken };
+      this.socket.connect();
+      return;
+    }
     try {
-      const authToken = token || getAuthToken();
+      this.activeUserId = this.activeUserId || 'U101';
       const targetHost = SOCKET_URL || API_URL;
       const socketHost = targetHost.replace(/\/api\/partner\/?$/, '').replace(/\/api\/?$/, '');
 
+      this.registeredServerEvents.clear();
       this.socket = io(socketHost, {
         auth: { token: authToken },
         query: { role: 'user' },
@@ -54,6 +66,9 @@ class SocketService {
           const { event, data, cb } = this.emitQueue.shift();
           this.socket.emit(event, data, cb);
         }
+
+        // Join personal user room for incoming calls & consultation signaling
+        this.socket.emit('user:join', { userId: this.activeUserId || 'U101' });
 
         // Query server for latest live astrologer list
         this.socket.emit('astro:get:online');
@@ -79,7 +94,9 @@ class SocketService {
         'booking:accepted',
         'booking:en_route',
         'booking:arrived',
+        'booking:started',
         'booking:pooja_started',
+        'booking:completion_requested',
         'booking:completed',
         'booking:cancelled',
         'chat:message',
@@ -98,8 +115,11 @@ class SocketService {
         'astro:offline',
         'astro:call:incoming',
         'astro:call:connected',
+        'astro:call:routed',
+        'astro:call:unavailable',
         'astro:call:declined',
         'astro:call:ended',
+        'astro:call:taken',
         'astro:chat:message',
       ];
 

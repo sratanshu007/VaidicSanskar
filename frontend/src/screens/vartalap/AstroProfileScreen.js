@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,16 +27,44 @@ export default function AstroProfileScreen({ navigation, route }) {
   const passedAstro = route.params?.astrologer;
   const astrologerId = route.params?.astrologerId || passedAstro?.id;
 
-  const [astro, setAstro] = useState(
-    passedAstro || (astrologerId ? talkToAstroStore.getAstrologerById(astrologerId) : null) || talkToAstroStore.getAstrologers()[0]
-  );
+  const [astro, setAstro] = useState(() => {
+    const base =
+      passedAstro ||
+      (astrologerId ? talkToAstroStore.getAstrologerById(astrologerId) : null) ||
+      talkToAstroStore.getAstrologers()[0];
+    const { astrologer: resolved } = talkToAstroStore.resolveTargetAstrologer(base);
+    return resolved || base;
+  });
   const [wallet, setWallet] = useState(talkToAstroStore.getWallet());
-  const [selectedMode, setSelectedMode] = useState('chat'); // 'chat' | 'audio' | 'video'
+  const [selectedMode, setSelectedMode] = useState(route.params?.mode || route.params?.selectedMode || 'video'); // 'chat' | 'audio' | 'video'
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
 
   const activeChannelRef = useRef(null);
   const timeoutTimerRef = useRef(null);
+  const selectedModeRef = useRef(selectedMode);
+  const astroRef = useRef(astro);
+  const isRequestingRef = useRef(false);
+  const hasNavigatedRef = useRef(false);
+
+  useEffect(() => {
+    selectedModeRef.current = selectedMode;
+  }, [selectedMode]);
+
+  useEffect(() => {
+    astroRef.current = astro;
+  }, [astro]);
+
+  useEffect(() => {
+    isRequestingRef.current = isRequesting;
+  }, [isRequesting]);
+
+  useEffect(() => {
+    const hasOnline = astro?.isOnline || talkToAstroStore.getOnlineAstrologers().length > 0;
+    if (route.params?.autoStart && hasOnline) {
+      handleStartConsultation();
+    }
+  }, []);
 
   useEffect(() => {
     const unsub = talkToAstroStore.subscribe((store) => {
@@ -49,40 +78,95 @@ export default function AstroProfileScreen({ navigation, route }) {
   }, [astrologerId]);
 
   useEffect(() => {
-    const handleConnected = (payload) => {
+    const handleRouted = (payload) => {
+      if (payload?.astrologer) {
+        setAstro((prev) => ({ ...(prev || {}), ...payload.astrologer, isOnline: true }));
+      }
+    };
+
+    const handleUnavailable = (payload) => {
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       setIsRequesting(false);
+      isRequestingRef.current = false;
+      Alert.alert(
+        'ज्योतिषी उपलब्ध नहीं',
+        payload?.message || 'वर्तमान में कोई भी ज्योतिषी ऑनलाइन उपलब्ध नहीं है।'
+      );
+    };
 
-      const targetRate = Number(astro?.rates?.[selectedMode] || 5);
+    const handleConnected = (payload) => {
+      // Ignore duplicate connect emits after transitioning out
+      if (hasNavigatedRef.current) return;
+      if (
+        activeChannelRef.current &&
+        payload?.channelName &&
+        payload.channelName !== activeChannelRef.current &&
+        !isRequestingRef.current
+      ) {
+        return;
+      }
 
-      // Deduct initial 1 minute (₹5) upon acceptance
+      hasNavigatedRef.current = true;
+      if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+      isRequestingRef.current = false;
+      setIsRequesting(false);
+
+      const currentMode = payload?.mode || selectedModeRef.current || 'video';
+      const baseAstro = astroRef.current || {
+        id: payload?.vendorId || 'ASTRO-7890',
+        name: 'आचार्य विद्याधर शास्त्री',
+        rates: { chat: 5, audio: 5, video: 5 },
+      };
+      const targetAstro = payload?.astrologer
+        ? { ...baseAstro, ...payload.astrologer, isOnline: true }
+        : baseAstro;
+
+      const targetRate = Number(targetAstro?.rates?.[currentMode] || targetAstro?.[`${currentMode}Rate`] || 5);
+      const modeLabel = currentMode === 'chat' ? 'चैट' : currentMode === 'audio' ? 'ऑडियो कॉल' : 'वीडियो कॉल';
+
+      // Deduct initial 1 minute upon acceptance
       talkToAstroStore.deductMoney(
         targetRate,
-        `${astro.name} से ${selectedMode === 'chat' ? 'चैट' : selectedMode === 'audio' ? 'ऑडियो कॉल' : 'वीडियो कॉल'} परामर्श (पहला मिनट)`
+        `${targetAstro.name} से ${modeLabel} परामर्श (पहला मिनट)`
       );
 
-      // Initiate single unified "परामर्श" session
+      // Initiate single unified consultation session
       talkToAstroStore.initiateSession({
-        astrologerId: astro.id,
-        astrologer: astro,
-        mode: selectedMode,
+        astrologerId: targetAstro.id,
+        astrologer: targetAstro,
+        mode: currentMode,
         topic: 'परामर्श',
         rate: targetRate,
       });
 
-      if (selectedMode === 'chat') {
-        navigation.navigate('AstroChat');
-      } else {
-        navigation.navigate('Call', {
-          astrologer: astro,
-          mode: selectedMode,
-          channelName: activeChannelRef.current || payload?.channelName,
-        });
-      }
+      const resolvedChannel = payload?.channelName || activeChannelRef.current;
+
+      // Defer navigation so Android modal dismissal completes before Call screen mounts
+      setTimeout(() => {
+        if (currentMode === 'chat') {
+          navigation.replace('AstroChat', {
+            astrologer: targetAstro,
+            channelName: resolvedChannel,
+            alreadyConnected: true,
+          });
+        } else {
+          navigation.replace('Call', {
+            astrologer: targetAstro,
+            mode: currentMode,
+            channelName: resolvedChannel,
+            agoraToken: payload?.agoraToken,
+            agoraAppId: payload?.agoraAppId,
+            alreadyConnected: true,
+          });
+        }
+      }, 100);
     };
 
-    const handleDeclined = () => {
+    const handleDeclined = (payload) => {
+      if (hasNavigatedRef.current) return;
+      if (!isRequestingRef.current && payload?.channelName !== activeChannelRef.current) return;
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+      isRequestingRef.current = false;
       setIsRequesting(false);
       Alert.alert(
         'अनुरोध अस्वीकार (Request Declined)',
@@ -90,15 +174,19 @@ export default function AstroProfileScreen({ navigation, route }) {
       );
     };
 
-    socket.on('astro:call:connected', handleConnected);
-    socket.on('astro:call:declined', handleDeclined);
+    const unsubConnected = socket.on('astro:call:connected', handleConnected);
+    const unsubDeclined = socket.on('astro:call:declined', handleDeclined);
+    const unsubRouted = socket.on('astro:call:routed', handleRouted);
+    const unsubUnavailable = socket.on('astro:call:unavailable', handleUnavailable);
 
     return () => {
-      socket.off('astro:call:connected', handleConnected);
-      socket.off('astro:call:declined', handleDeclined);
+      if (typeof unsubConnected === 'function') unsubConnected();
+      if (typeof unsubDeclined === 'function') unsubDeclined();
+      if (typeof unsubRouted === 'function') unsubRouted();
+      if (typeof unsubUnavailable === 'function') unsubUnavailable();
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     };
-  }, [selectedMode, astro]);
+  }, [navigation]);
 
   if (!astro) {
     return (
@@ -121,12 +209,19 @@ export default function AstroProfileScreen({ navigation, route }) {
   const totalBalance = (wallet.mainBalance || 0) + (wallet.bonusBalance || 0);
 
   const handleStartConsultation = () => {
-    if (!astro.isOnline) {
-      Alert.alert(
-        'ज्योतिषी ऑफलाइन हैं',
-        'यह ज्योतिषाचार्य वर्तमान में ऑफलाइन हैं। कृपया ऑनलाइन ज्योतिषी चुनें अथवा कुछ समय बाद प्रयास करें।'
-      );
-      return;
+    let targetAstro = astro;
+    if (!targetAstro?.isOnline) {
+      const { astrologer: fallbackOnline } = talkToAstroStore.resolveTargetAstrologer(targetAstro);
+      if (fallbackOnline?.isOnline) {
+        targetAstro = fallbackOnline;
+        setAstro(fallbackOnline);
+      } else {
+        Alert.alert(
+          'ज्योतिषी ऑफलाइन हैं',
+          'यह ज्योतिषाचार्य वर्तमान में ऑफलाइन हैं। कृपया ऑनलाइन ज्योतिषी चुनें अथवा कुछ समय बाद प्रयास करें।'
+        );
+        return;
+      }
     }
 
     if (totalBalance < rate) {
@@ -136,16 +231,23 @@ export default function AstroProfileScreen({ navigation, route }) {
 
     const channelName = `astro_${selectedMode}_${Date.now()}`;
     activeChannelRef.current = channelName;
+    hasNavigatedRef.current = false;
+    isRequestingRef.current = true;
     setIsRequesting(true);
+
+    // Guarantee user room membership before call initiation
+    socket.emit('user:join', { userId: 'U101' });
 
     // Send real-time request to Astrologer Partner App
     socket.emit('astro:call:initiate', {
       channelName,
-      recipientId: astro.id,
+      recipientId: targetAstro.id,
       caller: {
         id: 'U101',
         name: 'Sratanshu Shukla',
         phone: '+91 63936 20028',
+        mode: selectedMode,
+        rate,
       },
       mode: selectedMode,
       rate,
@@ -153,10 +255,14 @@ export default function AstroProfileScreen({ navigation, route }) {
     });
 
     // 45 seconds timeout if astrologer does not answer
+    if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     timeoutTimerRef.current = setTimeout(() => {
+      if (hasNavigatedRef.current) return;
+      isRequestingRef.current = false;
       setIsRequesting(false);
       socket.emit('astro:call:end', {
         channelName,
+        callerId: 'U101',
         recipientId: astro.id,
       });
       Alert.alert(
@@ -168,10 +274,12 @@ export default function AstroProfileScreen({ navigation, route }) {
 
   const handleCancelRequest = () => {
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+    isRequestingRef.current = false;
     setIsRequesting(false);
     if (activeChannelRef.current) {
       socket.emit('astro:call:end', {
         channelName: activeChannelRef.current,
+        callerId: 'U101',
         recipientId: astro.id,
       });
     }
@@ -188,6 +296,7 @@ export default function AstroProfileScreen({ navigation, route }) {
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       {/* Top Navbar */}
       <View style={s.navHeader}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
@@ -236,27 +345,27 @@ export default function AstroProfileScreen({ navigation, route }) {
               ]}
             />
             <Text style={[s.statusText, { color: astro.isOnline ? '#16A34A' : '#6B7280' }]}>
-              {astro.isOnline ? '🟢 ऑनलाइन व परामर्श हेतु उपलब्ध' : '⚪ वर्तमान में ऑफलाइन'}
+              {astro.isOnline ? 'ऑनलाइन व परामर्श हेतु उपलब्ध' : 'वर्तमान में ऑफलाइन'}
             </Text>
           </View>
 
           {/* Quick Metrics */}
           <View style={s.metricsRow}>
             <View style={s.metricItem}>
-              <Text style={s.metricVal}>{astro.experienceYears || 10}+ वर्ष</Text>
+              <Text style={s.metricVal}>{astro.experienceYears || 0} वर्ष</Text>
               <Text style={s.metricLabel}>अनुभव</Text>
             </View>
             <View style={s.metricDivider} />
             <View style={s.metricItem}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <MaterialCommunityIcons name="star" size={15} color="#F59E0B" />
-                <Text style={s.metricVal}> {astro.rating || 5.0}</Text>
+                <Text style={s.metricVal}> {Number(astro.rating || 0).toFixed(1)}</Text>
               </View>
-              <Text style={s.metricLabel}>{astro.reviewsCount || 120} समीक्षाएँ</Text>
+              <Text style={s.metricLabel}>{astro.reviewsCount || 0} समीक्षाएँ</Text>
             </View>
             <View style={s.metricDivider} />
             <View style={s.metricItem}>
-              <Text style={s.metricVal}>{astro.ordersCompleted || 350}+</Text>
+              <Text style={s.metricVal}>{astro.ordersCompleted || 0}</Text>
               <Text style={s.metricLabel}>संतुष्ट यजमान</Text>
             </View>
           </View>
@@ -381,7 +490,7 @@ export default function AstroProfileScreen({ navigation, route }) {
         <TouchableOpacity
           style={[
             s.connectBtn,
-            !astro.isOnline && s.connectBtnDisabled,
+            !astro.isOnline && talkToAstroStore.getOnlineAstrologers().length === 0 && s.connectBtnDisabled,
           ]}
           onPress={handleStartConsultation}
           activeOpacity={0.88}
@@ -392,13 +501,21 @@ export default function AstroProfileScreen({ navigation, route }) {
             color="#FFFFFF"
           />
           <Text style={s.connectBtnText}>
-            {astro.isOnline ? `परामर्श शुरू करें (₹${rate}/min)` : 'वर्तमान में ऑफलाइन'}
+            {astro.isOnline
+              ? `परामर्श शुरू करें (₹${rate}/min)`
+              : `उपलब्ध ऑनलाइन ज्योतिषी से जुड़ें (₹${rate}/min)`}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Outgoing Request / Calling Modal (Waiting for Astrologer Accept/Reject) */}
-      <Modal visible={isRequesting} transparent animationType="fade">
+      {/* Outgoing Request / Calling Modal (Centered Waiting Overlay for Astrologer Accept/Reject) */}
+      <Modal
+        visible={isRequesting}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={handleCancelRequest}
+      >
         <View style={s.requestOverlay}>
           <View style={s.requestCard}>
             <View style={s.pulseDisc}>
@@ -661,6 +778,8 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: colors.text,
+    flexShrink: 1,
+    marginRight: 8,
   },
   modeRate: {
     fontSize: 13,
@@ -774,7 +893,7 @@ const s = StyleSheet.create({
   },
   requestOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: 'rgba(13, 6, 20, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,

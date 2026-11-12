@@ -12,10 +12,12 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Header } from '../../components/ui';
 import colors from '../../theme/colors';
 import { panditBookingStore } from '../../services/panditBookingStore';
 import socket from '../../services/socket';
+import { useKeyboardLift } from '../../utils/useKeyboardLift';
 
 const QUICK_REPLIES = [
   'मैं घर पर ही हूँ 🙏',
@@ -26,11 +28,15 @@ const QUICK_REPLIES = [
 ];
 
 export default function ChatScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const booking = panditBookingStore.getBooking();
   const name = route.params?.name || booking?.pandit?.name || 'पंडित जी';
   const [messages, setMessages] = useState(booking?.chatMessages || []);
   const [text, setText] = useState('');
   const listRef = useRef();
+  const { androidLift, onContainerLayout } = useKeyboardLift(() => {
+    listRef.current?.scrollToEnd({ animated: true });
+  });
 
   useEffect(() => {
     const bookingId = booking?.id || route.params?.bookingId;
@@ -68,7 +74,14 @@ export default function ChatScreen({ navigation, route }) {
   };
 
   return (
-    <View style={s.container}>
+    <KeyboardAvoidingView
+      onLayout={onContainerLayout}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={[
+        s.container,
+        Platform.OS === 'android' && androidLift > 0 ? { paddingBottom: androidLift } : null,
+      ]}
+    >
       <Header
         title={name}
         subtitle="🔒 Number masked · end-to-end encrypted"
@@ -87,7 +100,9 @@ export default function ChatScreen({ navigation, route }) {
         ref={listRef}
         data={messages}
         keyExtractor={(m) => m.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 10 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 10, flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => {
           const isMe = item.sender === 'yajman';
@@ -112,7 +127,7 @@ export default function ChatScreen({ navigation, route }) {
 
       {/* QUICK REPLIES BAR */}
       <View style={s.quickBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 12 }}>
           {QUICK_REPLIES.map((q) => (
             <TouchableOpacity key={q} style={s.quickChip} onPress={() => send(q)}>
               <Text style={s.quickText}>{q}</Text>
@@ -121,21 +136,28 @@ export default function ChatScreen({ navigation, route }) {
         </ScrollView>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={s.inputBar}>
-          <TextInput
-            style={s.input}
-            placeholder="संदेश लिखें (Type a message)..."
-            placeholderTextColor={colors.textMuted}
-            value={text}
-            onChangeText={setText}
-          />
-          <TouchableOpacity style={s.sendBtn} onPress={() => send()}>
-            <MaterialCommunityIcons name="send" size={20} color="#3A1208" />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </View>
+      <View
+        style={[
+          s.inputBar,
+          { paddingBottom: androidLift > 0 ? 10 : Math.max(insets.bottom, 12) },
+        ]}
+      >
+        <TextInput
+          style={s.input}
+          placeholder="संदेश लिखें (Type a message)..."
+          placeholderTextColor={colors.textMuted}
+          value={text}
+          onChangeText={setText}
+          onFocus={() => setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 120)}
+          multiline
+          maxLength={1000}
+          textAlignVertical="center"
+        />
+        <TouchableOpacity style={s.sendBtn} onPress={() => send()}>
+          <MaterialCommunityIcons name="send" size={20} color="#3A1208" />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -234,10 +256,12 @@ const s = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minHeight: 44,
+    maxHeight: 110,
     backgroundColor: '#FAF7F0',
-    borderRadius: 100,
+    borderRadius: 22,
     paddingHorizontal: 16,
-    height: 46,
+    paddingVertical: 10,
     fontSize: 14,
     color: '#3A1208',
     borderWidth: 1,
