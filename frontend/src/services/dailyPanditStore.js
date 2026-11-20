@@ -199,57 +199,38 @@ class DailyPanditStore {
     return this.subscription;
   }
 
-  // Simulate Admin assigning Pandit (SLA fulfillment)
-  simulateAdminAssignPandit() {
-    if (!this.subscription) return;
+  // Assign Pandit from backend/admin
+  assignPandit(pandit, backupPandit = null) {
+    if (!this.subscription || !pandit) return;
     this.subscription.status = 'ACTIVE';
-    this.subscription.assignedPandit = {
-      id: 'PND-9912',
-      name: 'पं. राधेश्याम शास्त्री',
-      photo: 'vedic_pandit',
-      rating: 4.96,
-      ratingCount: 310,
-      expYears: 16,
-      gurukul: 'सम्पूर्णानन्द संस्कृत विश्वविद्यालय, वाराणसी',
-      languages: ['हिन्दी', 'संस्कृत', 'अवधी'],
-      phoneMasked: '+91 94•••• ••42',
-      onTimeRate: '98%',
-      totalDailySites: 5,
-    };
-    this.subscription.backupPandit = {
-      id: 'PND-7703',
-      name: 'पं. अमित जोशी',
-      photo: 'astro_kashi',
-      rating: 4.9,
-      expYears: 11,
-      phoneMasked: '+91 98•••• ••19',
-    };
+    this.subscription.assignedPandit = pandit;
+    this.subscription.backupPandit = backupPandit;
     if (this.subscription.todayVisit) {
-      this.subscription.todayVisit.panditName = 'पं. राधेश्याम शास्त्री';
+      this.subscription.todayVisit.panditName = pandit.name || '';
     }
     this.notify();
   }
 
-  // Simulate Live Visit Stages for testing / demo
-  setTodayVisitStatus(newStatus) {
+  // Update Live Visit Stages from backend / socket
+  setTodayVisitStatus(newStatus, details = {}) {
     if (!this.subscription || !this.subscription.todayVisit) return;
     const v = this.subscription.todayVisit;
     v.status = newStatus;
 
     if (newStatus === 'ON_THE_WAY') {
-      v.liveLocation = '0.9 किमी दूर (आगमन 6 मिनट में)';
+      v.liveLocation = details.liveLocation || 'पंडित जी मार्ग में हैं';
     } else if (newStatus === 'CHECKED_IN') {
-      v.checkinAt = '07:05 AM';
-      v.verifiedGps = true;
-      v.verifiedQr = true;
+      v.checkinAt = details.checkinAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      v.verifiedGps = Boolean(details.verifiedGps ?? true);
+      v.verifiedQr = Boolean(details.verifiedQr ?? true);
     } else if (newStatus === 'IN_PROGRESS') {
-      v.startedAt = '07:07 AM';
-      v.durationMinutes = 12;
+      v.startedAt = details.startedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      v.durationMinutes = details.durationMinutes || 0;
     } else if (newStatus === 'COMPLETED') {
-      v.completedAt = '07:34 AM';
-      v.durationMinutes = 27;
-      v.photoProofUrl = 'pooja_kit';
-      v.photoWatermark = `${this.subscription.siteName} • 10-10-2026 07:33 AM • GPS: Verified`;
+      v.completedAt = details.completedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      v.durationMinutes = details.durationMinutes || 0;
+      v.photoProofUrl = details.photoProofUrl || null;
+      v.photoWatermark = details.photoWatermark || `${this.subscription.siteName || 'Site'} • ${new Date().toLocaleString()} • GPS Verified`;
     }
     this.notify();
   }

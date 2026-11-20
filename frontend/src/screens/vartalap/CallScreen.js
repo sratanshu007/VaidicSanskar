@@ -17,18 +17,24 @@ import talkToAstroStore, { RECHARGE_PACKS } from '../../services/talkToAstroStor
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
 import AgoraCallView from '../../components/agora/AgoraCallView';
 import socket from '../../services/socket';
+import { useApp } from '../../context/AppContext';
 
 export default function CallScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const { user } = useApp();
+  const currentUserId = user?.id || user?._id || user?.phone || 'user';
+  const currentUserName = user?.name || 'यजमान (Customer)';
+  const currentUserPhone = user?.phone || '';
+
   const [astrologer, setAstrologer] = useState(
     () =>
       route.params?.astrologer ||
       talkToAstroStore.resolveTargetAstrologer(null).astrologer ||
       talkToAstroStore.getAstrologers()[0]
   );
-  const mode = route.params?.mode || 'audio'; // audio | video
+  const mode = String(route.params?.mode || 'audio').toLowerCase().trim() === 'video' ? 'video' : 'audio'; // audio | video
   const channelName = useRef(
-    route.params?.channelName || `vartalap_${astrologer?.id || 'ASTRO-7890'}_${Date.now().toString().slice(-6)}`
+    route.params?.channelName || `vartalap_${astrologer?.id || astrologer?._id || 'call'}_${Date.now().toString().slice(-6)}`
   ).current;
 
   const [session, setSession] = useState(talkToAstroStore.getActiveSession());
@@ -40,7 +46,7 @@ export default function CallScreen({ navigation, route }) {
   const [isFrontCam, setIsFrontCam] = useState(true);
   const [liveAgoraToken, setLiveAgoraToken] = useState(route.params?.agoraToken || null);
   const [liveAgoraAppId, setLiveAgoraAppId] = useState(route.params?.agoraAppId || null);
-  const [activeRecipientId, setActiveRecipientId] = useState(astrologer?.id || 'ASTRO-7890');
+  const [activeRecipientId, setActiveRecipientId] = useState(astrologer?.id || astrologer?._id || '');
   const [agoraStatus, setAgoraStatus] = useState({
     stage: 'connecting',
     micActive: false,
@@ -62,33 +68,20 @@ export default function CallScreen({ navigation, route }) {
   useEffect(() => {
     // Only initiate signaling if this call was not already accepted from profile
     if (!route.params?.alreadyConnected) {
-      socket.emit('user:join', { userId: 'U101' });
+      socket.emit('user:join', { userId: currentUserId });
       const { astrologer: targetAstro } = talkToAstroStore.resolveTargetAstrologer(astrologer);
-      const initialRecipient = targetAstro?.id || astrologer?.id || 'ASTRO-7890';
+      const initialRecipient = targetAstro?.id || targetAstro?._id || astrologer?.id || astrologer?._id || '';
       setActiveRecipientId(initialRecipient);
       socket.emit('astro:call:initiate', {
         channelName,
         recipientId: initialRecipient,
         caller: {
-          id: 'U101',
-          name: 'स्रतांशु शुक्ला (यजमान)',
-          phone: '+91 63936 20028',
+          id: currentUserId,
+          name: currentUserName,
+          phone: currentUserPhone,
           mode,
           rate,
-          birthDetails: {
-            dob: '14-08-1995',
-            tob: '07:30 AM',
-            pob: 'वाराणसी, उत्तर प्रदेश',
-            gender: 'पुरुष (Male)',
-            kundali: {
-              lagna: 'सिंह (Leo)',
-              rashi: 'वृश्चिक (Scorpio)',
-              nakshatra: 'अनुराधा (चरण 2)',
-              dasha: 'बुध महादशा • शुक्र अंतर्दशा',
-              favorablePlanets: 'सूर्य, मंगल, गुरु',
-              remedyRecommended: 'आदित्य हृदय स्तोत्र पाठ, सूर्य को अर्घ्य',
-            },
-          },
+          birthDetails: user?.birthDetails || null,
         },
         mode,
         rate,
@@ -149,8 +142,18 @@ export default function CallScreen({ navigation, route }) {
       );
     };
 
+    const handleCallReady = (payload) => {
+      if (payload?.agoraToken) {
+        setLiveAgoraToken(payload.agoraToken);
+      }
+      if (payload?.agoraAppId) {
+        setLiveAgoraAppId(payload.agoraAppId);
+      }
+    };
+
     const unsubEnd = socket.on('astro:call:ended', handleRemoteEnd);
     const unsubConn = socket.on('astro:call:connected', handleCallConnected);
+    const unsubReady = socket.on('astro:call:ready', handleCallReady);
     const unsubRoute = socket.on('astro:call:routed', handleCallRouted);
     const unsubDecline = socket.on('astro:call:declined', handleCallDeclined);
     const unsubUnavail = socket.on('astro:call:unavailable', handleCallUnavailable);
@@ -159,6 +162,7 @@ export default function CallScreen({ navigation, route }) {
       clearInterval(timerRef.current);
       if (typeof unsubEnd === 'function') unsubEnd();
       if (typeof unsubConn === 'function') unsubConn();
+      if (typeof unsubReady === 'function') unsubReady();
       if (typeof unsubRoute === 'function') unsubRoute();
       if (typeof unsubDecline === 'function') unsubDecline();
       if (typeof unsubUnavail === 'function') unsubUnavail();
@@ -199,8 +203,8 @@ export default function CallScreen({ navigation, route }) {
     if (notifyRemote) {
       socket.emit('astro:call:end', {
         channelName,
-        callerId: 'U101',
-        recipientId: activeRecipientId || astrologer?.id || 'ASTRO-7890',
+        callerId: currentUserId,
+        recipientId: activeRecipientId || astrologer?.id || astrologer?._id || '',
       });
     }
     talkToAstroStore.endSession(notifyRemote ? 'USER_ENDED' : 'REMOTE_ENDED');
@@ -308,13 +312,14 @@ export default function CallScreen({ navigation, route }) {
           mode={mode}
           appId={liveAgoraAppId}
           token={liveAgoraToken}
+          uid={10001}
+          role="user"
           isMuted={isMuted}
           isSpeaker={isSpeaker}
           isVideoCamOff={isVideoCamOff}
           isFrontCam={isFrontCam}
           remoteName={astrologer?.name || 'ज्योतिषाचार्य'}
           remotePhoto={astrologer?.photo}
-          role="user"
           onCallConnected={() => setCallAccepted(true)}
           onStatusChange={(nextStatus) => setAgoraStatus((prev) => ({ ...prev, ...nextStatus }))}
           onCallEnded={() => handleEndCall(false)}
@@ -322,12 +327,14 @@ export default function CallScreen({ navigation, route }) {
       </View>
 
       {/* Shared Kundali Info Card */}
-      <View style={[s.kundaliSnippetCard, s.kundaliSnippetCardDark]}>
-        <MaterialCommunityIcons name="om" size={15} color={colors.gold || '#D48B28'} />
-        <Text style={[s.kundaliSnippetText, { color: '#FFECCC' }]} numberOfLines={1}>
-          साझा जन्म विवरण: स्रतांशु शुक्ला • सिंह लग्न • वृश्चिक राशि
-        </Text>
-      </View>
+      {user?.name ? (
+        <View style={[s.kundaliSnippetCard, s.kundaliSnippetCardDark]}>
+          <MaterialCommunityIcons name="om" size={15} color={colors.gold || '#D48B28'} />
+          <Text style={[s.kundaliSnippetText, { color: '#FFECCC' }]} numberOfLines={1}>
+            साझा विवरण: {user.name} {user?.rashi ? `• ${user.rashi} राशि` : ''}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Call Controls Bar */}
       <View style={s.controlsBar}>

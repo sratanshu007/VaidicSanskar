@@ -11,12 +11,14 @@ import {
   Clipboard,
   StatusBar,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { serif, shadow } from '../../theme/styles';
 import { panditBookingStore } from '../../services/panditBookingStore';
 import LiveTrackingMapView from '../../components/LiveTrackingMapView';
+import { DEFAULT_COORDS } from '../../services/mapplsService';
 import socket from '../../services/socket';
 import { API_URL } from '../../config/env';
 import { getAuthToken, BookingService } from '../../services/api';
@@ -26,14 +28,18 @@ export default function BookingStatusScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { showNotification } = useNotification();
   const passedBooking = route?.params?.booking;
-  const passedBookingId = route?.params?.bookingId || passedBooking?.id || passedBooking?._id;
+  const storeBooking = panditBookingStore.getBooking();
+  const passedBookingId = route?.params?.bookingId || passedBooking?.id || passedBooking?._id || storeBooking?.id;
   const [booking, setBooking] = useState(
-    () => passedBooking || panditBookingStore.getBooking()
+    () => storeBooking || passedBooking || null
   );
   const [hydrating, setHydrating] = useState(!booking);
   const [showCallModal, setShowCallModal] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState('Pooja procedure incomplete');
+  const [isTrackingStale, setIsTrackingStale] = useState(false);
+  const lastLocationUpdateRef = React.useRef(Date.now());
+  const isCancellingRef = React.useRef(false);
   const [liveLocation, setLiveLocation] = useState({
     latitude: 28.5520,
     longitude: 77.3780,
@@ -55,8 +61,15 @@ export default function BookingStatusScreen({ navigation, route }) {
         if (mounted && srv) {
           const updated = panditBookingStore.hydrateFromServer(srv);
           if (updated) setBooking({ ...updated });
+        } else if (mounted) {
+          const curStore = panditBookingStore.getBooking();
+          if (curStore) setBooking({ ...curStore });
         }
       } catch (_) {
+        if (mounted) {
+          const curStore = panditBookingStore.getBooking();
+          if (curStore) setBooking({ ...curStore });
+        }
       } finally {
         if (mounted) setHydrating(false);
       }
@@ -81,15 +94,24 @@ export default function BookingStatusScreen({ navigation, route }) {
 
     const handleLocation = (loc) => {
       if (loc) {
+        lastLocationUpdateRef.current = Date.now();
+        setIsTrackingStale(false);
         setLiveLocation({
-          latitude: loc.vendorLatitude || loc.latitude || 28.5520,
-          longitude: loc.vendorLongitude || loc.longitude || 77.3780,
-          distanceKm: String(loc.distanceKm || '2.1'),
-          etaMinutes: String(loc.etaMinutes || '12'),
+          latitude: Number(loc.vendorLatitude || loc.latitude || 28.5520),
+          longitude: Number(loc.vendorLongitude || loc.longitude || 77.3780),
+          distanceKm: String(loc.distanceKm != null ? loc.distanceKm : '2.1'),
+          etaMinutes: String(loc.etaMinutes != null ? loc.etaMinutes : '12'),
           lastUpdated: 'Live updated',
         });
       }
     };
+
+    // Stale check interval: if no GPS stream for >30 seconds, alert user
+    const staleInterval = setInterval(() => {
+      if (Date.now() - lastLocationUpdateRef.current > 30000) {
+        setIsTrackingStale(true);
+      }
+    }, 10000);
 
     const unsubLoc = socket.on('booking:location', handleLocation);
     const unsubTrack = socket.on('tracking:update', handleLocation);
@@ -176,6 +198,7 @@ export default function BookingStatusScreen({ navigation, route }) {
       unsubSrvStarted();
       unsubCompleted();
       unsubInstant();
+      clearInterval(staleInterval);
       if (socket && bId) socket.leave(bId);
     };
   }, [navigation, passedBookingId, booking?.id, booking?.startOtp, booking?.completeOtp]);
@@ -200,7 +223,17 @@ export default function BookingStatusScreen({ navigation, route }) {
     );
   }
 
-  const { status, pandit, pooja } = booking;
+  const status = booking?.status || 'ACCEPTED';
+  const pandit = booking?.pandit || booking?.assignedVendor || booking?.vendor || {
+    name: 'Verified Pandit',
+    experienceYears: 5,
+    rating: '4.9',
+    reviewsCount: 42,
+  };
+  const pooja = booking?.pooja || {
+    name: booking?.ritualName || booking?.poojaName || booking?.title || 'वैदिक पूजा',
+    price: booking?.dakshina || booking?.totalAmount || booking?.amount || 2500,
+  };
 
   // Format Elapsed Time (hh:mm:ss)
   const formatTimer = (sec = 0) => {
@@ -214,37 +247,56 @@ export default function BookingStatusScreen({ navigation, route }) {
       if (Clipboard && typeof Clipboard.setString === 'function') {
         Clipboard.setString(code);
       }
-    } catch (_) {}
+    } catch (_) { }
     Alert.alert('Copied', `OTP ${code} copied to clipboard.`);
   };
 
   const handleCancelBooking = () => {
-    let feeNotice = '100% full refund will be processed.';
+    let feeNotice = '100% पूरा रिफंड आपके मूल खाते में वापस कर दिया जाएगा।';
     if (status === 'ON_THE_WAY') {
-      feeNotice = 'Pandit is already en route. A ₹100 travel allowance will be deducted.';
+      feeNotice = 'पंडित जी आपके पते के लिए निकल चुके हैं। ₹100 यात्रा भत्ता काटा जाएगा।';
     } else if (status === 'ARRIVED') {
-      feeNotice = 'Pandit has arrived at your address. 50% dakshina will be paid to pandit.';
+      feeNotice = 'पंडित जी आपके पते पर पहुँच चुके हैं। 50% दक्षिणा पंडित जी को देय होगी।';
     } else if (status === 'IN_PROGRESS') {
       return Alert.alert(
-        'Cannot Cancel in Progress',
-        'Ritual has already begun with sacred sankalpa. If you have an issue, please raise a Dispute.'
+        'पूजा प्रगति पर है (In Progress)',
+        'वैदिक संकल्प आरंभ हो चुका है, अतः पूजा बीच में रद्द नहीं की जा सकती। किसी भी समस्या के लिए सहायता (Dispute) विकल्प चुनें।'
       );
     }
 
     Alert.alert(
-      'Cancel Pooja Booking?',
-      `${feeNotice}\n\nDo you wish to proceed with cancellation?`,
+      'पूजा रद्द करें?',
+      feeNotice,
       [
-        { text: 'Keep Booking', style: 'cancel' },
+        { text: 'बुकिंग रखें', style: 'cancel' },
         {
-          text: 'Confirm Cancellation',
+          text: 'रद्द करें',
           style: 'destructive',
           onPress: () => {
-            const res = panditBookingStore.cancelBooking('yajman', 'User cancelled');
-            if (res?.success) {
-              Alert.alert('Booking Cancelled', res.policy.explanation);
-              navigation.replace('Main');
+            isCancellingRef.current = true;
+            const bId = booking?.id || passedBookingId;
+            if (bId) {
+              const cancelPayload = {
+                id: bId,
+                bookingId: bId,
+                job_id: bId,
+                status: 'CANCELLED',
+                cancelledBy: 'yajman',
+                reason: 'User cancelled active booking',
+              };
+              socket.emit('booking:cancelled', cancelPayload);
+              socket.emit('booking:cancel', cancelPayload);
+              socket.emit('job:cancel', cancelPayload);
+              socket.emit('instant:cancel', cancelPayload);
+              socket.emit('instant:update', cancelPayload);
+              socket.leave(bId);
             }
+            const res = panditBookingStore.cancelBooking('yajman', 'User cancelled active booking');
+            panditBookingStore.reset();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            });
           },
         },
       ]
@@ -266,6 +318,32 @@ export default function BookingStatusScreen({ navigation, route }) {
   const isInProgress = status === 'IN_PROGRESS';
   const isCompleted = status === 'COMPLETED';
 
+  // Strictly prevent backing out of active accepted booking via buttons or gestures
+  useEffect(() => {
+    const onBackPress = () => {
+      if (isCompleted || isCancellingRef.current) {
+        return false;
+      }
+      handleCancelBooking();
+      return true; // Blocks default back action
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+    const unsubBeforeRemove = navigation.addListener('beforeRemove', (e) => {
+      if (isCompleted || isCancellingRef.current) {
+        return;
+      }
+      e.preventDefault();
+      handleCancelBooking();
+    });
+
+    return () => {
+      backSub.remove();
+      unsubBeforeRemove();
+    };
+  }, [navigation, status, isCompleted]);
+
   return (
     <View style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAF5EE" translucent={false} />
@@ -274,10 +352,10 @@ export default function BookingStatusScreen({ navigation, route }) {
       <View style={[s.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={s.backCircle}
-          onPress={() => navigation.navigate('Main')}
+          onPress={handleCancelBooking}
           hitSlop={10}
         >
-          <Ionicons name="chevron-back" size={24} color="#67101F" />
+          <Ionicons name="close" size={22} color="#67101F" />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={s.screenTitle}>
@@ -296,8 +374,8 @@ export default function BookingStatusScreen({ navigation, route }) {
           <View style={s.mapWrapper}>
             <LiveTrackingMapView
               userLocation={{
-                latitude: booking.latitude || 28.5355,
-                longitude: booking.longitude || 77.3910,
+                latitude: booking.latitude || DEFAULT_COORDS.latitude,
+                longitude: booking.longitude || DEFAULT_COORDS.longitude,
               }}
               panditLocation={{
                 latitude: liveLocation.latitude,
@@ -305,6 +383,7 @@ export default function BookingStatusScreen({ navigation, route }) {
               }}
               distanceKm={liveLocation.distanceKm}
               etaMinutes={liveLocation.etaMinutes}
+              isStale={isTrackingStale}
             />
 
             {/* Floating ETA Overlay Pill */}
@@ -320,6 +399,36 @@ export default function BookingStatusScreen({ navigation, route }) {
                   {isArrived ? 'At your door' : `${liveLocation.distanceKm} km away`}
                 </Text>
               </View>
+            </View>
+          </View>
+        )}
+
+        {/* UPCOMING ADVANCE SCHEDULE VIEW (When Accepted and Journey Not Started) */}
+        {status === 'ACCEPTED' && (
+          <View style={s.upcomingScheduleCard}>
+            <View style={s.upcomingHeaderRow}>
+              <View style={s.upcomingCalendarIcon}>
+                <Ionicons name="calendar" size={24} color="#67101F" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={s.upcomingTitle}>Auspicious Pooja Scheduled</Text>
+                <Text style={s.upcomingDateText}>
+                  {booking.scheduledAt || (booking.scheduledDate ? `${booking.scheduledDate}${booking.scheduledTime ? ` • ${booking.scheduledTime}` : ''}` : 'Scheduled')}
+                </Text>
+              </View>
+              <View style={booking.bookingType === 'URGENT' ? s.urgentBadge : s.normalBadge}>
+                <Text style={booking.bookingType === 'URGENT' ? s.urgentBadgeText : s.normalBadgeText}>
+                  {booking.bookingType === 'URGENT' ? '⚡ Urgent' : 'Plan Ahead'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.upcomingTrackingNoticeBox}>
+              <Ionicons name="information-circle" size={18} color="#D48B28" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={s.upcomingTrackingNoticeText}>
+                Live GPS tracking will activate on the pooja day when Pandit Ji begins journey.
+                {'\n'}(लाइव ट्रैकिंग पूजा के दिन पंडित जी के प्रस्थान करते ही चालू होगी।)
+              </Text>
             </View>
           </View>
         )}
@@ -374,14 +483,14 @@ export default function BookingStatusScreen({ navigation, route }) {
             </Text>
 
             <View style={s.otpDigitsRow}>
-              {(booking.startOtp || '----').split('').map((digit, idx) => (
+              {String(booking?.startOtp || '----').split('').map((digit, idx) => (
                 <View key={idx} style={s.otpBox}>
                   <Text style={s.otpDigit}>{digit}</Text>
                 </View>
               ))}
             </View>
 
-            <TouchableOpacity style={s.copyBtn} onPress={() => booking.startOtp && copyToClipboard(booking.startOtp)}>
+            <TouchableOpacity style={s.copyBtn} onPress={() => booking?.startOtp && copyToClipboard(String(booking.startOtp))}>
               <MaterialCommunityIcons name="content-copy" size={15} color="#67101F" />
               <Text style={s.copyBtnText}>Copy OTP</Text>
             </TouchableOpacity>
@@ -410,7 +519,7 @@ export default function BookingStatusScreen({ navigation, route }) {
             </Text>
 
             <View style={s.otpDigitsRow}>
-              {(booking.completeOtp || '----').split('').map((digit, idx) => (
+              {String(booking?.completeOtp || '----').split('').map((digit, idx) => (
                 <View key={idx} style={[s.otpBox, { borderColor: '#15803D', backgroundColor: '#F0FDF4' }]}>
                   <Text style={[s.otpDigit, { color: '#15803D' }]}>{digit}</Text>
                 </View>
@@ -472,6 +581,14 @@ export default function BookingStatusScreen({ navigation, route }) {
         <View style={s.detailsCard}>
           <Text style={s.detailsCardTitle}>Booking Summary & Location</Text>
           <View style={s.detailRow}>
+            <Text style={s.detailKey}>Booking Type:</Text>
+            <View style={booking.bookingType === 'URGENT' ? s.urgentBadge : s.normalBadge}>
+              <Text style={booking.bookingType === 'URGENT' ? s.urgentBadgeText : s.normalBadgeText}>
+                {booking.bookingType === 'URGENT' ? '⚡ Urgent Priority' : 'Plan Ahead'}
+              </Text>
+            </View>
+          </View>
+          <View style={s.detailRow}>
             <Text style={s.detailKey}>Ritual:</Text>
             <Text style={s.detailVal}>{pooja?.name || booking.ritualName || booking.poojaName || booking.title || 'Satyanarayan Pooja'}</Text>
           </View>
@@ -489,6 +606,14 @@ export default function BookingStatusScreen({ navigation, route }) {
             <Text style={s.detailKey}>Samagri:</Text>
             <Text style={s.detailVal}>{booking.withSamagri ? 'Pandit will bring' : 'Arranged by Yajman'}</Text>
           </View>
+          {booking.urgentSurcharge > 0 && (
+            <View style={s.detailRow}>
+              <Text style={[s.detailKey, { color: '#B45309' }]}>Urgent Surcharge:</Text>
+              <Text style={[s.detailVal, { color: '#B45309', fontWeight: '700' }]}>
+                + ₹ {booking.urgentSurcharge}
+              </Text>
+            </View>
+          )}
           <View style={s.detailRow}>
             <Text style={s.detailKey}>Total Dakshina:</Text>
             <Text style={[s.detailVal, { color: '#67101F', fontWeight: '800' }]}>
@@ -641,6 +766,84 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     ...shadow,
+  },
+  upcomingScheduleCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#D48B28',
+    ...shadow,
+  },
+  upcomingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  upcomingCalendarIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FBF8F2',
+    borderWidth: 1,
+    borderColor: '#EFE4D6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upcomingTitle: {
+    fontFamily: serif,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2E1418',
+  },
+  upcomingDateText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#67101F',
+    marginTop: 2,
+  },
+  upcomingTrackingNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFDF9',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#F3E5D4',
+  },
+  upcomingTrackingNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#7D686B',
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  urgentBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  urgentBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  normalBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  normalBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#15803D',
   },
   mapFloatingCard: {
     position: 'absolute',

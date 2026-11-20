@@ -83,7 +83,7 @@ export default function NotificationCenterScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.cream }}>
       <Header title="Notification Center" navigation={navigation} />
-      <Screen>
+      <Screen scroll={false}>
         {/* Status indicator */}
         <View style={s.statusBar}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>

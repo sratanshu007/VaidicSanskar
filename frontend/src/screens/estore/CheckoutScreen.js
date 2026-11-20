@@ -72,13 +72,13 @@ export default function CheckoutScreen({ navigation }) {
         items: itemsPayload,
         itemName: currentCart.length > 1 ? `${itemName} (+${currentCart.length - 1} more)` : itemName,
         total: calcs.finalTotal || newOrder.total || 699,
-        buyer: address?.name || 'Rahul Sharma',
+        buyer: address?.name || 'Customer',
         shippingAddress: {
-          name: address?.name || 'Rahul Sharma',
-          phone: address?.phone || '9876543210',
-          line1: address?.address || '101, Sunrise Apartment, Sector 12',
-          city: address?.city || 'New Delhi',
-          pincode: address?.pincode || '110001',
+          name: address?.name || 'Customer',
+          phone: address?.phone || '',
+          line1: address?.address || '',
+          city: address?.city || '',
+          pincode: address?.pincode || '',
         },
         paymentMethod: paymentMethod === 'COD' ? 'cod' : 'online',
       }).catch(() => {});
@@ -119,11 +119,11 @@ export default function CheckoutScreen({ navigation }) {
           </View>
 
           <View style={s.addressDetails}>
-            <Text style={s.addressName}>{address?.name || 'Rahul Sharma'}</Text>
+            <Text style={s.addressName}>{address?.name || 'Add Delivery Address'}</Text>
             <Text style={s.addressText}>
-              {address?.address || '101, Sunrise Apartment, Sector 12, New Delhi - 110001'}
+              {address?.address || (address?.city ? `${address.city} - ${address.pincode}` : 'Please tap Change to enter your address')}
             </Text>
-            <Text style={s.addressPhone}>Phone: {address?.phone || '+91 9876543210'}</Text>
+            {address?.phone ? <Text style={s.addressPhone}>Phone: {address.phone}</Text> : null}
           </View>
 
           <TouchableOpacity
@@ -314,7 +314,7 @@ export default function CheckoutScreen({ navigation }) {
           <View style={s.orderInfoCard}>
             <View style={s.orderInfoRow}>
               <Text style={s.orderInfoLabel}>Order ID</Text>
-              <Text style={s.orderInfoValue}>{placedOrder?.orderNumber || '#VS102456'}</Text>
+              <Text style={s.orderInfoValue}>{placedOrder?.orderNumber || placedOrder?.id || ''}</Text>
             </View>
             <View style={[s.orderInfoRow, { marginTop: 10 }]}>
               <Text style={s.orderInfoLabel}>Estimated Delivery</Text>

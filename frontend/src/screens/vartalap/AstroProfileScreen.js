@@ -19,10 +19,15 @@ import { useLanguage } from '../../context/LanguageContext';
 import talkToAstroStore, { RECHARGE_PACKS } from '../../services/talkToAstroStore';
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
 import socket from '../../services/socket';
+import { useApp } from '../../context/AppContext';
 
 export default function AstroProfileScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { isHindi } = useLanguage();
+  const { user } = useApp();
+  const currentUserId = user?.id || user?._id || user?.phone || 'user';
+  const currentUserName = user?.name || 'यजमान (Customer)';
+  const currentUserPhone = user?.phone || '';
 
   const passedAstro = route.params?.astrologer;
   const astrologerId = route.params?.astrologerId || passedAstro?.id;
@@ -36,7 +41,7 @@ export default function AstroProfileScreen({ navigation, route }) {
     return resolved || base;
   });
   const [wallet, setWallet] = useState(talkToAstroStore.getWallet());
-  const [selectedMode, setSelectedMode] = useState(route.params?.mode || route.params?.selectedMode || 'video'); // 'chat' | 'audio' | 'video'
+  const [selectedMode, setSelectedMode] = useState(route.params?.mode || route.params?.selectedMode || 'audio'); // 'chat' | 'audio' | 'video'
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
 
@@ -111,10 +116,12 @@ export default function AstroProfileScreen({ navigation, route }) {
       isRequestingRef.current = false;
       setIsRequesting(false);
 
-      const currentMode = payload?.mode || selectedModeRef.current || 'video';
+      const currentMode = String(payload?.mode || selectedModeRef.current || 'audio').toLowerCase().trim() === 'video'
+        ? 'video'
+        : (payload?.mode === 'chat' || selectedModeRef.current === 'chat' ? 'chat' : 'audio');
       const baseAstro = astroRef.current || {
-        id: payload?.vendorId || 'ASTRO-7890',
-        name: 'आचार्य विद्याधर शास्त्री',
+        id: payload?.vendorId || '',
+        name: 'वैदिक ज्योतिषाचार्य',
         rates: { chat: 5, audio: 5, video: 5 },
       };
       const targetAstro = payload?.astrologer
@@ -236,16 +243,16 @@ export default function AstroProfileScreen({ navigation, route }) {
     setIsRequesting(true);
 
     // Guarantee user room membership before call initiation
-    socket.emit('user:join', { userId: 'U101' });
+    socket.emit('user:join', { userId: currentUserId });
 
     // Send real-time request to Astrologer Partner App
     socket.emit('astro:call:initiate', {
       channelName,
       recipientId: targetAstro.id,
       caller: {
-        id: 'U101',
-        name: 'Sratanshu Shukla',
-        phone: '+91 63936 20028',
+        id: currentUserId,
+        name: currentUserName,
+        phone: currentUserPhone,
         mode: selectedMode,
         rate,
       },
@@ -262,7 +269,7 @@ export default function AstroProfileScreen({ navigation, route }) {
       setIsRequesting(false);
       socket.emit('astro:call:end', {
         channelName,
-        callerId: 'U101',
+        callerId: currentUserId,
         recipientId: astro.id,
       });
       Alert.alert(
@@ -279,7 +286,7 @@ export default function AstroProfileScreen({ navigation, route }) {
     if (activeChannelRef.current) {
       socket.emit('astro:call:end', {
         channelName: activeChannelRef.current,
-        callerId: 'U101',
+        callerId: currentUserId,
         recipientId: astro.id,
       });
     }

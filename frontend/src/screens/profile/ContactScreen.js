@@ -5,9 +5,7 @@ import { Header, Screen, Card, Field, Button } from '../../components/ui';
 import colors from '../../theme/colors';
 
 const contacts = [
-  { icon: 'phone', label: 'Call Us', value: '+91 98765 43210', action: 'tel:+919876543210' },
-  { icon: 'email', label: 'Email', value: 'support@vaidicsanskar.com', action: 'mailto:support@vaidicsanskar.com' },
-  { icon: 'whatsapp', label: 'WhatsApp', value: '+91 98765 43210', action: 'https://wa.me/919876543210' },
+  { icon: 'email', label: 'Email Support', value: 'support@vaidicsanskar.com', action: 'mailto:support@vaidicsanskar.com' },
 ];
 
 export default function ContactScreen({ navigation }) {

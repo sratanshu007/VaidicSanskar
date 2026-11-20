@@ -19,9 +19,51 @@ import colors from '../theme/colors';
 import { serif } from '../theme/styles';
 import { useApp } from '../context/AppContext';
 import { useLanguage, LanguageSwitcher } from '../context/LanguageContext';
+import { getPoojaImage } from '../utils/poojaImages';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.78, 320);
+const BANNER_WIDTH = SCREEN_WIDTH - 32;
+
+// Carousel Banners matching the Vedic devotional theme
+const HERO_BANNERS = [
+  {
+    id: 'pooja',
+    title_en: 'Book a Pooja',
+    title_hi: 'वैदिक पूजा बुकिंग',
+    sub_en: 'Bring peace, prosperity and positive energy into your life.',
+    sub_hi: 'घर में सुख, शांति व सकारात्मक ऊर्जा का संचार करें।',
+    btn_en: 'Explore Poojas  →',
+    btn_hi: 'पूजाएं देखें  →',
+    route: 'PujaBrowse',
+    image: require('../../assets/banner_havan_kund.png'),
+    gradient: ['#7E2018', '#541016'],
+  },
+  {
+    id: 'darshan',
+    title_en: 'Temple Darshan',
+    title_hi: 'पवित्र मंदिर दर्शन',
+    sub_en: 'Book VIP passes, pujas & live aarti at sacred shrines.',
+    sub_hi: 'प्रमुख तीर्थों के VIP पास, दर्शन व संकल्प पूजा बुक करें।',
+    btn_en: 'Book Darshan  →',
+    btn_hi: 'दर्शन बुक करें  →',
+    route: 'DarshanBooking',
+    image: require('../../assets/sacred_temple_emblem.png'),
+    gradient: ['#7E2018', '#4E0E14'],
+  },
+  {
+    id: 'astro',
+    title_en: 'Astro Guidance',
+    title_hi: 'ज्योतिष परामर्श',
+    sub_en: 'Connect with certified Vedic Astrologers in real-time.',
+    sub_hi: 'प्रमाणित आचार्यों से कुंडली, ग्रह शांति व करियर मार्गदर्शन लें।',
+    btn_en: 'Consult Now  →',
+    btn_hi: 'परामर्श लें  →',
+    route: 'Vartalap',
+    image: require('../../assets/spiritual_journey_diya.png'),
+    gradient: ['#7A1D16', '#4E0E14'],
+  },
+];
 
 // Top Quick Services matching the 4 circular icons in mockup Screen 3
 const TOP_SERVICES = [
@@ -34,12 +76,12 @@ const TOP_SERVICES = [
     image: require('../../assets/services/pandit_booking.png'),
   },
   {
-    id: 'pandit_booking',
-    title_en: 'Pandit\nBooking',
-    title_hi: 'पंडित\nबुकिंग',
-    icon: 'account-tie',
-    route: 'PujaBrowse',
-    image: require('../../assets/services/daily_pandit.png'),
+    id: 'sahitya_sangrah',
+    title_en: 'Sahitya\nSangrah',
+    title_hi: 'साहित्य\nसंग्रह',
+    icon: 'book-open-page-variant',
+    route: 'SahityaHome',
+    image: require('../../assets/services/sahitya_sangrah.png'),
   },
   {
     id: 'astro_talk',
@@ -69,11 +111,25 @@ const MORE_SERVICES = [
     route: 'DarshanBooking',
   },
   {
+    id: 'daily_pandit',
+    title_en: 'Daily Pandit',
+    title_hi: 'दैनिक पंडित',
+    image: require('../../assets/services/daily_pandit.png'),
+    route: 'DailyPandit',
+  },
+  {
     id: 'kundali',
     title_en: 'Kundali',
     title_hi: 'कुंडली',
     image: require('../../assets/services/horoscope.png'),
     route: 'Kundali',
+  },
+  {
+    id: 'bhajan_mandali',
+    title_en: 'Bhajan Mandali',
+    title_hi: 'भजन मंडली',
+    image: require('../../assets/services/bhajan_mandal.png'),
+    route: 'BhajanMandali',
   },
   {
     id: 'brahman_bhoj',
@@ -84,18 +140,11 @@ const MORE_SERVICES = [
     routeParams: { category: 'Brahman Bhoj' },
   },
   {
-    id: 'bhajan_mandal',
-    title_en: 'Bhajan Mandal',
-    title_hi: 'भजन मंडली',
-    image: require('../../assets/services/bhajan_mandal.png'),
-    route: 'BhajanMandali',
-  },
-  {
-    id: 'daily_pandit',
-    title_en: 'Daily Pandit',
-    title_hi: 'दैनिक पंडित',
-    image: require('../../assets/services/daily_pandit.png'),
-    route: 'DailyPandit',
+    id: 'nearby_pandits',
+    title_en: 'Nearby Pandits',
+    title_hi: 'नजदीकी पंडित',
+    image: require('../../assets/services/pandit_booking.png'),
+    route: 'NearbyPanditsMap',
   },
   {
     id: 'puja_temple',
@@ -138,8 +187,13 @@ const DEFAULT_POPULAR_POOJAS = [
     name: 'Satyanarayan Pooja',
     hindi: 'श्री सत्यनारायण महापूजा',
     tagline: 'For happiness, peace & family prosperity',
+    category: 'Popular',
     price: 2500,
+    samagri: 600,
     duration: '1.5 - 2 hrs',
+    bestDay: 'Thursday, Purnima, Ekadashi',
+    suitableFor: 'Family, New Home, Business, Gratitude',
+    desc: 'Sacred recitation of Lord Satyanarayan Katha with Panchamrit, Tulsi Arpan, and Havan.',
     image: require('../../assets/services/puja_temple.png'),
   },
   {
@@ -147,8 +201,13 @@ const DEFAULT_POPULAR_POOJAS = [
     name: 'Griha Pravesh Pooja',
     hindi: 'गृह प्रवेश एवं वास्तु शांति',
     tagline: 'Auspicious housewarming and negative energy removal',
+    category: 'Popular',
     price: 5100,
+    samagri: 1100,
     duration: '3 - 3.5 hrs',
+    bestDay: 'Shukla Paksha Auspicious Muhurat',
+    suitableFor: 'New House, Flat, Office Inauguration',
+    desc: 'Complete Vastu Shanti, Navgrah Havan, and Dwar Pooja by Vedic scholars.',
     image: require('../../assets/services/pandit_booking.png'),
   },
   {
@@ -156,8 +215,13 @@ const DEFAULT_POPULAR_POOJAS = [
     name: 'Ganesh Pooja',
     hindi: 'श्री गणेश चतुर्थी व विघ्नहर्ता पूजा',
     tagline: 'Removal of obstacles & auspicious beginnings',
+    category: 'Popular',
     price: 2100,
+    samagri: 500,
     duration: '1 - 1.5 hrs',
+    bestDay: 'Wednesday, Chaturthi',
+    suitableFor: 'New Business, Exams, New Projects',
+    desc: 'Invocation of Lord Vighnaharta with Modak Bhog, Atharvashirsha Path, and Durva offering.',
     image: require('../../assets/services/pandit_booking.png'),
   },
   {
@@ -165,24 +229,48 @@ const DEFAULT_POPULAR_POOJAS = [
     name: 'Rudrabhishek Pooja',
     hindi: 'महा रुद्राभिषेक एवं शिव पूजन',
     tagline: 'For health, longevity & negative dosha removal',
+    category: 'Peace',
     price: 3100,
+    samagri: 700,
     duration: '2 - 2.5 hrs',
+    bestDay: 'Monday, Pradosh, Shivratri',
+    suitableFor: 'Health, Overcoming Sickness, Mental Peace',
+    desc: 'Potent Shivling Abhishek with 11 sacred Dravyas and Sri Rudram chanting.',
     image: require('../../assets/banner_havan_kund.png'),
   },
 ];
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0);
+  const topPadding = Platform.OS === 'android'
+    ? Math.max(StatusBar.currentHeight || 0, 36) + 18
+    : Math.max(insets.top || 0, 44) + 12;
   const { user } = useApp();
   const { isHindi } = useLanguage();
 
   const [selectedCity, setSelectedCity] = useState(user?.city || 'New Delhi');
   const [cityModalVisible, setCityModalVisible] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
-  const [showAllServices, setShowAllServices] = useState(false);
+  const [showAllServices, setShowAllServices] = useState(true);
   const [activeBooking, setActiveBooking] = useState(panditBookingStore.getBooking());
   const [popularPoojas, setPopularPoojas] = useState(DEFAULT_POPULAR_POOJAS);
+  const [activeBanner, setActiveBanner] = useState(0);
+  const bannerScrollRef = useRef(null);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveBanner((prev) => {
+        const next = (prev + 1) % HERO_BANNERS.length;
+        bannerScrollRef.current?.scrollTo({
+          x: next * BANNER_WIDTH,
+          animated: true,
+        });
+        return next;
+      });
+    }, 4500);
+
+    return () => clearInterval(timer);
+  }, []);
 
   React.useEffect(() => {
     const unsub = panditBookingStore.subscribe((b) => {
@@ -196,14 +284,28 @@ export default function HomeScreen({ navigation }) {
           panditBookingStore.hydrateFromServer(b);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Fetch dynamic poojas from backend database
     PujaService.list()
       .then((res) => {
         const raw = Array.isArray(res) ? res : res?.pujas || res?.data || [];
         if (raw.length > 0) {
-          setPopularPoojas(raw);
+          const mapped = raw.map((p) => ({
+            id: String(p._id || p.id),
+            name: p.name,
+            hindi: p.hindi || '',
+            tagline: p.tagline || p.shortDescription || p.description || 'Vedic Pooja',
+            category: p.category || 'Popular',
+            price: Number(p.basePrice || p.price || 2500),
+            duration: p.duration || (p.durationMinutes ? `${p.durationMinutes} mins` : '1.5 - 2 hrs'),
+            samagri: Number(p.samagri || p.samagriComboPrice || 600),
+            bestDay: p.bestDay || 'Auspicious Muhurat',
+            suitableFor: p.suitableFor || 'Family, Home & Business',
+            desc: p.desc || p.description || 'Conducted by certified Vedic pandits.',
+            image: getPoojaImage(p),
+          }));
+          setPopularPoojas(mapped);
         }
       })
       .catch((err) => console.log('Backend pooja fetch notice:', err?.message));
@@ -263,7 +365,7 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <View style={s.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <StatusBar barStyle="light-content" backgroundColor="#5A1017" translucent={false} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -274,7 +376,7 @@ export default function HomeScreen({ navigation }) {
           colors={['#5A1017', '#4A0C13']}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
-          style={[s.topMaroonHeader, { paddingTop: topInset + 12 }]}
+          style={[s.topMaroonHeader, { paddingTop: topPadding }]}
         >
           <View style={s.topHeaderRow}>
             {/* Left: Greeting & Subtitle */}
@@ -330,44 +432,82 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </LinearGradient>
 
-        {/* 2. HERO BANNER: "Book a Pooja" */}
+        {/* 2. HERO BANNERS CAROUSEL */}
         <View style={s.heroBannerWrap}>
-          <TouchableOpacity
-            style={s.heroBannerCard}
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate('PujaBrowse')}
+          <ScrollView
+            ref={bannerScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const idx = Math.round(e.nativeEvent.contentOffset.x / BANNER_WIDTH);
+              setActiveBanner(idx);
+            }}
+            contentContainerStyle={{ borderRadius: 20 }}
           >
-            <LinearGradient
-              colors={['#7E2018', '#541016']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={s.heroGradient}
-            >
-              <View style={s.heroLeft}>
-                <Text style={s.heroTitle}>Book a Pooja</Text>
-                <Text style={s.heroSub}>
-                  {isHindi
-                    ? 'घर में सुख, शांति व सकारात्मक ऊर्जा का संचार करें।'
-                    : 'Bring peace, prosperity and positive energy into your life.'}
-                </Text>
-                <TouchableOpacity
-                  style={s.exploreBtn}
-                  activeOpacity={0.8}
-                  onPress={() => navigation.navigate('PujaBrowse')}
+            {HERO_BANNERS.map((banner) => (
+              <TouchableOpacity
+                key={banner.id}
+                style={[s.heroBannerCard, { width: BANNER_WIDTH }]}
+                activeOpacity={0.92}
+                onPress={() => navigation.navigate(banner.route)}
+              >
+                <LinearGradient
+                  colors={banner.gradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.heroGradient}
                 >
-                  <Text style={s.exploreBtnText}>Explore Poojas  →</Text>
-                </TouchableOpacity>
-              </View>
+                  <View style={s.heroLeft}>
+                    <Text style={s.heroTitle}>
+                      {isHindi ? banner.title_hi : banner.title_en}
+                    </Text>
+                    <Text style={s.heroSub}>
+                      {isHindi ? banner.sub_hi : banner.sub_en}
+                    </Text>
+                    <TouchableOpacity
+                      style={s.exploreBtn}
+                      activeOpacity={0.8}
+                      onPress={() => navigation.navigate(banner.route)}
+                    >
+                      <Text style={s.exploreBtnText}>
+                        {isHindi ? banner.btn_hi : banner.btn_en}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
-              <View style={s.heroRight}>
-                <Image
-                  source={require('../../assets/banner_havan_kund.png')}
-                  style={s.heroArtImage}
-                  resizeMode="contain"
-                />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
+                  <View style={s.heroRight}>
+                    <Image
+                      source={banner.image}
+                      style={s.heroArtImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Carousel Pagination Dots */}
+          <View style={s.bannerDotsRow}>
+            {HERO_BANNERS.map((_, i) => (
+              <TouchableOpacity
+                key={i}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setActiveBanner(i);
+                  bannerScrollRef.current?.scrollTo({
+                    x: i * BANNER_WIDTH,
+                    animated: true,
+                  });
+                }}
+                style={[
+                  s.bannerDot,
+                  activeBanner === i && s.bannerDotActive,
+                ]}
+              />
+            ))}
+          </View>
         </View>
 
         {/* 3. QUICK SERVICES: 4 CIRCULAR ICONS MATCHING MOCKUP SCREEN 3 */}
@@ -380,7 +520,7 @@ export default function HomeScreen({ navigation }) {
               onPress={() => navigation.navigate(item.route)}
             >
               <View style={s.serviceCircle}>
-                <Image source={item.image} style={s.serviceIconImg} resizeMode="contain" />
+                <Image source={item.image} style={s.serviceIconImg} resizeMode="cover" />
               </View>
               <Text style={s.serviceTitle} numberOfLines={2}>
                 {isHindi ? item.title_hi : item.title_en}
@@ -390,19 +530,20 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         {/* 4. EXPANDABLE ALL SERVICES ("Add more services that I have") */}
-        <View style={s.sectionHeader}>
+        <TouchableOpacity
+          style={s.sectionHeader}
+          activeOpacity={0.7}
+          onPress={() => setShowAllServices(!showAllServices)}
+        >
           <Text style={s.sectionTitle}>
             {isHindi ? 'सभी वैदिक सेवाएं' : 'All Sacred Services'}
           </Text>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => setShowAllServices(!showAllServices)}
-          >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={s.viewAllLink}>
               {showAllServices ? (isHindi ? 'कम देखें ▴' : 'Show Less ▴') : (isHindi ? 'और देखें ▾' : 'View More ▾')}
             </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
+        </TouchableOpacity>
 
         {showAllServices && (
           <View style={s.moreServicesGrid}>
@@ -414,7 +555,7 @@ export default function HomeScreen({ navigation }) {
                 onPress={() => navigation.navigate(item.route, item.routeParams || {})}
               >
                 <View style={s.moreServiceCircle}>
-                  <Image source={item.image} style={s.moreServiceImg} resizeMode="contain" />
+                  <Image source={item.image} style={s.moreServiceImg} resizeMode="cover" />
                 </View>
                 <Text style={s.moreServiceText} numberOfLines={2}>
                   {isHindi ? item.title_hi : item.title_en}
@@ -452,7 +593,7 @@ export default function HomeScreen({ navigation }) {
                 key={pooja.id || pooja._id}
                 style={s.poojaCard}
                 activeOpacity={0.88}
-                onPress={() => navigation.navigate('PujaBooking', { pooja })}
+                onPress={() => navigation.navigate('PoojaDetail', { pooja })}
               >
                 <View style={s.poojaImageWrapper}>
                   <Image source={poojaImg} style={s.poojaThumb} resizeMode="contain" />
@@ -547,7 +688,7 @@ export default function HomeScreen({ navigation }) {
               },
             ]}
           >
-            <View style={[s.drawerHeader, { paddingTop: topInset + 16 }]}>
+            <View style={[s.drawerHeader, { paddingTop: topPadding }]}>
               <Image
                 source={require('../../assets/profile_krishna_avatar.png')}
                 style={s.drawerAvatar}
@@ -746,11 +887,6 @@ const s = StyleSheet.create({
   heroBannerCard: {
     borderRadius: 20,
     overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#541016',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
   },
   heroGradient: {
     flexDirection: 'row',
@@ -797,6 +933,25 @@ const s = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  bannerDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  bannerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D9C5B2',
+    marginHorizontal: 3.5,
+  },
+  bannerDotActive: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7E2018',
+  },
   quickServicesRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -808,23 +963,19 @@ const s = StyleSheet.create({
     width: (SCREEN_WIDTH - 64) / 4,
   },
   serviceCircle: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     backgroundColor: '#F7E7CD',
     borderWidth: 1.5,
     borderColor: '#E8C588',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#D48817',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
+    overflow: 'hidden',
   },
   serviceIconImg: {
-    width: 36,
-    height: 36,
+    width: '100%',
+    height: '100%',
   },
   serviceTitle: {
     fontSize: 12,
@@ -864,19 +1015,19 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
   moreServiceCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#EADBCE',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 1,
+    overflow: 'hidden',
   },
   moreServiceImg: {
-    width: 30,
-    height: 30,
+    width: '100%',
+    height: '100%',
   },
   moreServiceText: {
     fontSize: 11.5,
@@ -904,11 +1055,12 @@ const s = StyleSheet.create({
     shadowRadius: 4,
   },
   poojaImageWrapper: {
-    height: 94,
+    height: 96,
     backgroundColor: '#FDF7EC',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
+    overflow: 'hidden',
+    padding: 6,
   },
   poojaThumb: {
     width: '100%',
@@ -1032,11 +1184,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginTop: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   homeSearchPlaceholder: {
     fontSize: 12.5,

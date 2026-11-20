@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { Header, Screen, Field, Button, Card } from '../../components/ui';
 import { Sheet, Tag } from '../../components/widgets';
 import colors from '../../theme/colors';
@@ -20,9 +21,32 @@ export default function AddressBookScreen({ navigation }) {
   const set = (k) => (v) => setForm({ ...form, [k]: v });
   const addresses = user?.addresses || [];
 
-  const useCurrentLocation = () => {
-    // TODO: expo-location reverseGeocode → fill form
-    setForm({ label: 'Home', line: '123, Temple Road', city: 'Varanasi', pin: '221001' });
+  const useCurrentLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Location permission is required to detect your address.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc && loc.coords) {
+        const [addr] = await Location.reverseGeocodeAsync({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        if (addr) {
+          const line = [addr.name, addr.street, addr.district].filter(Boolean).join(', ');
+          setForm((prev) => ({
+            ...prev,
+            line: line || addr.formattedAddress || '',
+            city: addr.city || addr.region || '',
+            pin: addr.postalCode || '',
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Location fetch failed', e);
+    }
   };
 
   const save = () => {

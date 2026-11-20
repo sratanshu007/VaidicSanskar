@@ -9,6 +9,8 @@ import {
   Easing,
   Alert,
   StatusBar,
+  Modal,
+  BackHandler,
 } from 'react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +34,36 @@ export default function SearchingScreen({ navigation, route }) {
   const pulse1 = useRef(new Animated.Value(0)).current;
   const pulse2 = useRef(new Animated.Value(0)).current;
   const pulse3 = useRef(new Animated.Value(0)).current;
+  const hasNavigatedRef = useRef(false);
+  const isCancellingRef = useRef(false);
+  const pollIntervalRef = useRef(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  // Trap and intercept back navigation (hardware button, gestures, and back navigation)
+  useEffect(() => {
+    const onBackPress = () => {
+      if (hasNavigatedRef.current || isCancellingRef.current) {
+        return false;
+      }
+      setShowCancelModal(true);
+      return true; // Strictly prevents exiting the screen
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+    const unsubBeforeRemove = navigation.addListener('beforeRemove', (e) => {
+      if (hasNavigatedRef.current || isCancellingRef.current) {
+        return;
+      }
+      e.preventDefault();
+      setShowCancelModal(true);
+    });
+
+    return () => {
+      backSub.remove();
+      unsubBeforeRemove();
+    };
+  }, [navigation]);
 
   useEffect(() => {
     if (!panditBookingStore.getBooking() && route?.params?.booking) {
@@ -68,13 +100,25 @@ export default function SearchingScreen({ navigation, route }) {
     createPulse(pulse2, 850);
     createPulse(pulse3, 1700);
 
+    // Safe single transition handler (prevents duplicate navigation race conditions)
+    const navigateToBookingStatus = (targetId, updatedBooking) => {
+      if (hasNavigatedRef.current) return;
+      hasNavigatedRef.current = true;
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      navigation.replace('BookingStatus', {
+        bookingId: targetId,
+        booking: updatedBooking,
+      });
+    };
+
     // 2. Local reactive store subscription
     const unsub = panditBookingStore.subscribe((b) => {
       setBooking(b ? { ...b } : null);
       if (b && (b.status === 'ACCEPTED' || b.status === 'ON_THE_WAY' || b.status === 'ARRIVED')) {
-        setTimeout(() => {
-          navigation.replace('BookingStatus', { bookingId: b.id });
-        }, 500);
+        navigateToBookingStatus(b.id, b);
       }
     });
 
@@ -119,20 +163,21 @@ export default function SearchingScreen({ navigation, route }) {
     }
 
     const handleAccepted = (data) => {
+      if (hasNavigatedRef.current) return;
       if (data && (data.assignedVendor || data.assignedVendorId || data.vendor || data.id || data.requestId)) {
+        const assignedPandit = data.assignedVendor || data.vendor || { name: 'Verified Pandit' };
         showNotification({
           title: 'पंडित जी मिल गए! 🙏',
-          message: `${data?.assignedVendor?.name || data?.vendor?.name || 'आचार्य जी'} ने आपकी पूजा स्वीकार कर ली है।`,
+          message: `${assignedPandit.name || 'आचार्य जी'} ने आपकी पूजा स्वीकार कर ली है।`,
           type: 'pandit',
         });
-        panditBookingStore.acceptBooking(data.assignedVendor || data.vendor || { name: 'Verified Pandit' });
+        panditBookingStore.acceptBooking(assignedPandit);
         if (data.booking || data.startOtp || data.completeOtp) {
           panditBookingStore.hydrateFromServer(data.booking || data);
         }
-        navigation.replace('BookingStatus', {
-          bookingId: data.id || data.bookingId || data.requestId || bookingId,
-          booking: data.booking || data,
-        });
+        const fullBooking = panditBookingStore.getBooking() || data.booking || data;
+        const finalId = fullBooking?.id || data.id || data.bookingId || data.requestId || bookingId;
+        navigateToBookingStatus(finalId, fullBooking);
       }
     };
 
@@ -144,7 +189,8 @@ export default function SearchingScreen({ navigation, route }) {
     });
 
     // 4. Resilient polling fallback every 2.5s via typed backend services
-    const pollInterval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
+      if (hasNavigatedRef.current) return;
       const bId = booking?.id || route?.params?.bookingId;
       if (!bId) return;
       try {
@@ -156,43 +202,73 @@ export default function SearchingScreen({ navigation, route }) {
           try {
             const instRes = await InstantService.get(bId);
             b = instRes?.request || instRes?.data || instRes;
-          } catch (_) {}
+          } catch (_) { }
         }
-        if (b) {
+        if (b && !hasNavigatedRef.current) {
           const sUpper = String(b.status || '').toUpperCase();
           if (['ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'POOJA_STARTED', 'ON_THE_WAY'].includes(sUpper)) {
-            clearInterval(pollInterval);
             panditBookingStore.acceptBooking(b.assignedVendor || b.vendor || { name: 'Verified Pandit' });
             panditBookingStore.hydrateFromServer(b);
-            navigation.replace('BookingStatus', { bookingId: b._id || b.id || bId, booking: b });
+            const fullBooking = panditBookingStore.getBooking() || b;
+            navigateToBookingStatus(fullBooking?.id || b._id || b.id || bId, fullBooking);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }, 2500);
 
     return () => {
       unsub();
-      clearInterval(pollInterval);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
       if (socket && bookingId) socket.leave(bookingId);
     };
   }, [navigation, booking?.id]);
 
   const handleCancelSearch = () => {
-    Alert.alert(
-      'Cancel Pandit Search?',
-      'You are entitled to a 100% Instant Refund if you cancel while searching. Would you like to proceed?',
-      [
-        { text: 'Keep Searching', style: 'cancel' },
-        {
-          text: 'Yes, Cancel (100% Refund)',
-          style: 'destructive',
-          onPress: () => {
-            panditBookingStore.cancelBooking('yajman', 'User cancelled while searching');
-            navigation.replace('PujaBrowse');
-          },
-        },
-      ]
-    );
+    setShowCancelModal(true);
+  };
+
+  const handleContinueSearch = () => {
+    setShowCancelModal(false);
+  };
+
+  const handleConfirmCancel = () => {
+    isCancellingRef.current = true;
+    setShowCancelModal(false);
+
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    const bId = booking?.id || route?.params?.bookingId;
+    if (bId) {
+      const cancelPayload = {
+        id: bId,
+        bookingId: bId,
+        job_id: bId,
+        status: 'CANCELLED',
+        cancelledBy: 'yajman',
+        reason: 'User cancelled search',
+      };
+      socket.emit('booking:cancelled', cancelPayload);
+      socket.emit('booking:cancel', cancelPayload);
+      socket.emit('job:cancel', cancelPayload);
+      socket.emit('instant:cancel', cancelPayload);
+      socket.emit('instant:update', cancelPayload);
+      socket.leave(bId);
+    }
+
+    panditBookingStore.cancelBooking('yajman', 'User cancelled while searching');
+    panditBookingStore.reset();
+
+    // Redirect directly to HomeScreen ('Main') and clear stack so user cannot back into Searching
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Main' }],
+    });
   };
 
   if (!booking) {
@@ -377,6 +453,56 @@ export default function SearchingScreen({ navigation, route }) {
           <Text style={s.cancelBtnText}>Cancel Request (100% Refund)</Text>
         </TouchableOpacity>
       </View>
+
+      {/* SACRED VEDIC CANCEL / CONTINUE CONFIRMATION POPUP */}
+      <Modal
+        visible={showCancelModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleContinueSearch}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={s.modalIconCircle}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={38} color="#67101F" />
+            </View>
+
+            <Text style={s.modalTitle}>खोज रद्द करें?</Text>
+            <Text style={s.modalSubtitle}>
+              100% पूरा रिफंड तुरंत आपके खाते में वापस आ जाएगा।
+            </Text>
+
+            <View style={s.modalRefundBox}>
+              <Ionicons name="shield-checkmark" size={18} color="#15803D" />
+              <Text style={s.modalRefundText}>
+                100% Instant Refund Guaranteed
+              </Text>
+            </View>
+
+            <View style={s.modalBtnCol}>
+              {/* Option 1: Continue Searching */}
+              <TouchableOpacity
+                style={s.continueBtn}
+                onPress={handleContinueSearch}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="search" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={s.continueBtnText}>खोज जारी रखें</Text>
+              </TouchableOpacity>
+
+              {/* Option 2: Cancel & Return Home */}
+              <TouchableOpacity
+                style={s.cancelConfirmBtn}
+                onPress={handleConfirmCancel}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="close-circle-outline" size={17} color="#B91C1C" style={{ marginRight: 6 }} />
+                <Text style={s.cancelConfirmBtnText}>रद्द करें</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -705,6 +831,100 @@ const s = StyleSheet.create({
   },
   backBtnText: {
     color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 350,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 22,
+    alignItems: 'center',
+    ...shadow,
+  },
+  modalIconCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#67101F',
+    fontFamily: serif,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#6E5544',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  modalRefundBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    gap: 8,
+    marginBottom: 18,
+    width: '100%',
+  },
+  modalRefundText: {
+    fontSize: 12,
+    color: '#15803D',
+    fontWeight: '700',
+    flex: 1,
+  },
+  modalBtnCol: {
+    width: '100%',
+    gap: 10,
+  },
+  continueBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#67101F',
+    paddingVertical: 13,
+    borderRadius: 14,
+    width: '100%',
+    ...shadow,
+  },
+  continueBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  cancelConfirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    paddingVertical: 12,
+    borderRadius: 14,
+    width: '100%',
+  },
+  cancelConfirmBtnText: {
+    color: '#B91C1C',
+    fontSize: 13,
     fontWeight: '700',
   },
 });

@@ -37,7 +37,7 @@ export default function ProductDetailScreen({ navigation, route }) {
   };
 
   const rawImages = (
-    Array.isArray(product?.images) && product.images.length > 0
+    Array.isArray(product?.images) && product?.images?.length > 0
       ? product.images
       : [product?.image || product?.imageUrl || 'https://images.unsplash.com/photo-1609234656388-0ff363383899?w=800&auto=format&fit=crop&q=80']
   ).map(resolveImageUri);
@@ -62,11 +62,11 @@ export default function ProductDetailScreen({ navigation, route }) {
   const currentMrp = Number(product?.mrp || (currentPrice ? Math.round(currentPrice * 1.35) : 899));
   const discountPct = product?.discountPct || (currentMrp > currentPrice ? Math.round(((currentMrp - currentPrice) / currentMrp) * 100) : 33);
 
-  const features = Array.isArray(product?.features) && product.features.length > 0
+  const features = Array.isArray(product?.features) && product?.features?.length > 0
     ? product.features
     : ['Pure Brass', 'Traditional Design', 'Long Lasting'];
 
-  const specifications = Array.isArray(product?.specifications) && product.specifications.length > 0
+  const specifications = Array.isArray(product?.specifications) && product?.specifications?.length > 0
     ? product.specifications
     : [
         { label: 'Category', value: product?.categoryName || 'Pooja Samagri' },
@@ -74,7 +74,7 @@ export default function ProductDetailScreen({ navigation, route }) {
         { label: 'Origin', value: 'Handcrafted in Bharat' },
       ];
 
-  const reviews = Array.isArray(product?.reviews) && product.reviews.length > 0
+  const reviews = Array.isArray(product?.reviews) && product?.reviews?.length > 0
     ? product.reviews
     : [
         { id: 'r1', user: 'Sunita G.', rating: 5, date: '18 Oct 2026', verified: true, text: 'Very heavy and authentic material. Beautiful finish. Arrived safely packed!' },
@@ -86,7 +86,7 @@ export default function ProductDetailScreen({ navigation, route }) {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Check out ${product?.name} on VaidicSanskar eStore: Only ₹${currentPrice} (${discountPct}% OFF)!`,
+        message: `Check out ${product?.name || 'Vaidic Product'} on VaidicSanskar eStore: Only ₹${currentPrice} (${discountPct}% OFF)!`,
       });
     } catch (_) {}
   };
@@ -111,24 +111,32 @@ export default function ProductDetailScreen({ navigation, route }) {
   const handleThumbnailPress = (index) => {
     setActiveImageIndex(index);
     if (mainGalleryRef.current) {
-      mainGalleryRef.current.scrollToIndex({ index, animated: true });
+      if (typeof mainGalleryRef.current.scrollTo === 'function') {
+        mainGalleryRef.current.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
+      } else if (typeof mainGalleryRef.current.scrollToIndex === 'function') {
+        mainGalleryRef.current.scrollToIndex({ index, animated: true });
+      }
     }
   };
 
   const onGalleryScroll = (e) => {
-    const offsetX = e.nativeEvent.contentOffset.x;
+    const offsetX = e.nativeEvent?.contentOffset?.x || 0;
     const index = Math.round(offsetX / SCREEN_WIDTH);
     if (index >= 0 && index < rawImages.length && index !== activeImageIndex) {
       setActiveImageIndex(index);
       if (thumbListRef.current) {
-        thumbListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+        if (typeof thumbListRef.current.scrollTo === 'function') {
+          thumbListRef.current.scrollTo({ x: Math.max(0, index * 74 - 80), animated: true });
+        } else if (typeof thumbListRef.current.scrollToIndex === 'function') {
+          thumbListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+        }
       }
     }
   };
 
   const handleAddToCart = () => {
     estoreStore.addToCart(product, product?.variants?.[0], qty);
-    Alert.alert('Added to Cart ✓', `${product.name} (Qty: ${qty}) has been added to your cart.`, [
+    Alert.alert('Added to Cart ✓', `${product?.name || 'Item'} (Qty: ${qty}) has been added to your cart.`, [
       { text: 'Keep Shopping', style: 'cancel' },
       { text: 'Go to Cart', onPress: () => navigation.navigate('Cart') },
     ]);
@@ -200,29 +208,24 @@ export default function ProductDetailScreen({ navigation, route }) {
         {/* SWIPEABLE PRODUCT IMAGE GALLERY (FLIPKART / AMAZON STYLE) */}
         {/* ========================================================================= */}
         <View style={s.galleryContainer}>
-          <FlatList
+          <ScrollView
             ref={mainGalleryRef}
-            data={rawImages}
-            keyExtractor={(_, i) => `hero-img-${i}`}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={onGalleryScroll}
-            getItemLayout={(_, index) => ({
-              length: SCREEN_WIDTH,
-              offset: SCREEN_WIDTH * index,
-              index,
-            })}
-            renderItem={({ item, index }) => (
+          >
+            {rawImages.map((item, index) => (
               <TouchableOpacity
+                key={`hero-img-${index}`}
                 activeOpacity={0.95}
                 onPress={() => setZoomModalVisible(true)}
                 style={s.heroSlide}
               >
                 <Image source={{ uri: item }} style={s.heroImage} resizeMode="cover" />
               </TouchableOpacity>
-            )}
-          />
+            ))}
+          </ScrollView>
 
           {/* Image Counter Indicator (e.g. 1/4) */}
           <View style={s.imageCounterBadge}>
@@ -250,18 +253,18 @@ export default function ProductDetailScreen({ navigation, route }) {
         {/* CLICKABLE THUMBNAIL GALLERY STRIP */}
         {rawImages.length > 1 && (
           <View style={s.thumbnailSection}>
-            <FlatList
+            <ScrollView
               ref={thumbListRef}
-              data={rawImages}
-              keyExtractor={(_, i) => `thumb-${i}`}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={s.thumbListContent}
-              renderItem={({ item, index }) => {
+            >
+              {rawImages.map((item, index) => {
                 const isActive = activeImageIndex === index;
                 const angleLabel = index === 0 ? 'Front' : index === 1 ? 'Side' : index === 2 ? 'Top' : `Angle ${index + 1}`;
                 return (
                   <TouchableOpacity
+                    key={`thumb-${index}`}
                     style={[s.thumbCard, isActive && s.thumbCardActive]}
                     activeOpacity={0.85}
                     onPress={() => handleThumbnailPress(index)}
@@ -274,8 +277,8 @@ export default function ProductDetailScreen({ navigation, route }) {
                     </View>
                   </TouchableOpacity>
                 );
-              }}
-            />
+              })}
+            </ScrollView>
           </View>
         )}
 
@@ -283,17 +286,17 @@ export default function ProductDetailScreen({ navigation, route }) {
         {/* PRODUCT TITLE, RATING & PRICE CARD */}
         {/* ========================================================================= */}
         <View style={s.detailsCard}>
-          <Text style={s.productTitle}>{product.name}</Text>
-          {product.nameHi && <Text style={s.productTitleHi}>{product.nameHi}</Text>}
+          <Text style={s.productTitle}>{product?.name || 'Vaidic Product'}</Text>
+          {product?.nameHi ? <Text style={s.productTitleHi}>{product.nameHi}</Text> : null}
 
           {/* Rating & Verified Buyer row */}
           <View style={s.ratingRow}>
             <View style={s.ratingPill}>
               <Ionicons name="star" size={13} color="#FFF" />
-              <Text style={s.ratingPillText}>{product.rating || 4.9}</Text>
+              <Text style={s.ratingPillText}>{product?.rating || 4.9}</Text>
             </View>
             <Text style={s.reviewCountText}>
-              ({product.reviewsCount || 156} verified customer reviews)
+              ({product?.reviewsCount || 156} verified customer reviews)
             </Text>
             <View style={s.verifiedBadge}>
               <MaterialCommunityIcons name="check-decagram" size={14} color="#15803D" />
@@ -391,7 +394,7 @@ export default function ProductDetailScreen({ navigation, route }) {
         <View style={s.infoCard}>
           <Text style={s.infoCardHeading}>Product Description</Text>
           <Text style={s.descBody}>
-            {product.description ||
+            {product?.description ||
               'Beautifully crafted brass pooja thali set with diya, incense holder, roli, chawal and more. Perfect for daily pooja and special occasions.'}
           </Text>
 
@@ -414,7 +417,7 @@ export default function ProductDetailScreen({ navigation, route }) {
             <Text style={s.infoCardHeading}>Customer Reviews</Text>
             <View style={s.overallRatingBox}>
               <Ionicons name="star" size={14} color="#D48817" />
-              <Text style={s.overallRatingScore}>{product.rating || 4.9} / 5</Text>
+              <Text style={s.overallRatingScore}>{product?.rating || 4.9} / 5</Text>
             </View>
           </View>
 

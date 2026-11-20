@@ -57,12 +57,17 @@ export default function BookingReviewScreen({ navigation, route }) {
     'ताजे पीले व लाल पुष्प, दूर्वा, तुलसी दल',
   ];
 
+  // Booking Type & Surcharges
+  const bookingType = draft.bookingType || 'NORMAL';
+  const isUrgent = bookingType === 'URGENT';
+  const urgentSurcharge = draft.urgentSurcharge || (isUrgent ? Math.max(350, Math.round((pooja.price || 2500) * 0.15)) : 0);
+
   // Pricing calculations
   const serviceCharge = pooja.price || 2500;
   const travelFee = 0; // Included complimentary for nearby pandits
   const platformFee = 50;
-  const taxes = Math.round((serviceCharge + samagriFee + platformFee) * 0.05); // 5% GST
-  const totalPayable = serviceCharge + samagriFee + travelFee + platformFee + taxes;
+  const taxes = Math.round((serviceCharge + urgentSurcharge + samagriFee + platformFee) * 0.05); // 5% GST
+  const totalPayable = serviceCharge + urgentSurcharge + samagriFee + travelFee + platformFee + taxes;
 
   // Payment method selection
   const [paymentOption, setPaymentOption] = useState('UPI_ADVANCE'); // 'UPI_ADVANCE' | 'PAY_AFTER'
@@ -80,6 +85,17 @@ export default function BookingReviewScreen({ navigation, route }) {
         ritualId: pooja.id,
         ritualName: pooja.name,
         pooja,
+        bookingType,
+        urgentSurcharge,
+        priceSnapshot: {
+          basePrice: serviceCharge,
+          urgentSurcharge,
+          samagriFee,
+          travelFee,
+          platformFee,
+          taxes,
+          totalAmount: totalPayable,
+        },
         scheduledDate,
         scheduledTime,
         serviceAddress,
@@ -106,7 +122,9 @@ export default function BookingReviewScreen({ navigation, route }) {
       // 2. Initialize local reactive booking store for instant UX
       const createdBooking = panditBookingStore.createBooking({
         pooja,
-        type: 'scheduled',
+        type: isUrgent ? 'urgent' : 'scheduled',
+        bookingType,
+        urgentSurcharge,
         scheduledAt: `${scheduledDate}, ${scheduledTime}`,
         address: serviceAddress,
         area: serviceArea,
@@ -182,6 +200,21 @@ export default function BookingReviewScreen({ navigation, route }) {
       >
         {/* 1. POOJA HERO CARD */}
         <View style={s.card}>
+          {/* Booking Type Badge */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <View style={isUrgent ? s.urgentTypeBadge : s.normalTypeBadge}>
+              <Ionicons
+                name={isUrgent ? 'flash' : 'calendar'}
+                size={13}
+                color={isUrgent ? '#B45309' : '#15803D'}
+                style={{ marginRight: 4 }}
+              />
+              <Text style={isUrgent ? s.urgentTypeBadgeText : s.normalTypeBadgeText}>
+                {isUrgent ? 'URGENT PRIORITY BOOKING (तत्काल बुकिंग)' : 'PLAN AHEAD BOOKING (अग्रिम बुकिंग)'}
+              </Text>
+            </View>
+          </View>
+
           <View style={s.poojaHeaderRow}>
             <View style={s.omBadge}>
               <Text style={s.omText}>🕉</Text>
@@ -282,6 +315,20 @@ export default function BookingReviewScreen({ navigation, route }) {
             <Text style={s.billLabel}>Pooja Dakshina (Ritual Fee)</Text>
             <Text style={s.billValue}>₹ {serviceCharge.toLocaleString('en-IN')}</Text>
           </View>
+
+          {isUrgent && (
+            <View style={[s.billRow, { backgroundColor: '#FFFBF0', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, marginVertical: 2 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="flash" size={14} color="#B45309" style={{ marginRight: 4 }} />
+                <Text style={[s.billLabel, { color: '#B45309', fontWeight: '700' }]}>
+                  Urgent Booking Surcharge (तत्काल शुल्क)
+                </Text>
+              </View>
+              <Text style={[s.billValue, { color: '#B45309', fontWeight: '800' }]}>
+                ₹ {urgentSurcharge.toLocaleString('en-IN')}
+              </Text>
+            </View>
+          )}
 
           <View style={s.billRow}>
             <Text style={s.billLabel}>
@@ -475,6 +522,38 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EFE4D6',
     ...shadow,
+  },
+  urgentTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  urgentTypeBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#B45309',
+    letterSpacing: 0.3,
+  },
+  normalTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  normalTypeBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.3,
   },
   poojaHeaderRow: {
     flexDirection: 'row',

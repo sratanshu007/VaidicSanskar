@@ -281,9 +281,9 @@ export default function OrderTrackingScreen({ navigation, route }) {
             <View style={s.shippingReviewCard}>
               <Text style={s.shippingReviewTitle}>Delivery Address:</Text>
               <Text style={s.shippingReviewText}>
-                {activeOrder.address?.name || 'Rahul Sharma'}
-                {'\n'}{activeOrder.address?.address || '101, Sunrise Apartment, Sector 12'}
-                {'\n'}{activeOrder.address?.city || 'New Delhi'} - {activeOrder.address?.pincode || '110001'}
+                {activeOrder.address?.name || 'Customer'}
+                {activeOrder.address?.address ? `\n${activeOrder.address.address}` : ''}
+                {activeOrder.address?.city ? `\n${activeOrder.address.city}${activeOrder.address?.pincode ? ` - ${activeOrder.address.pincode}` : ''}` : ''}
               </Text>
             </View>
 

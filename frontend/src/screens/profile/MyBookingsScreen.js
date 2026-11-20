@@ -87,6 +87,7 @@ const normalizeRecord = (raw, sourceKind = 'Pooja') => {
     bucket: meta.bucket,
     rawStatus: String(raw.status || '').toUpperCase(),
     panditName: raw.assignedVendor?.name || raw.vendor?.name || raw.pandit?.name || null,
+    isUrgent: String(raw.bookingType || '').toUpperCase() === 'URGENT',
   };
 };
 
@@ -265,9 +266,16 @@ export default function MyBookingsScreen({ navigation, route }) {
                 />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={s.title} numberOfLines={1}>
-                  {b.title}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[s.title, { flex: 1 }]} numberOfLines={1}>
+                    {b.title}
+                  </Text>
+                  {b.isUrgent && (
+                    <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                      <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#B45309' }}>⚡ Urgent</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={s.meta} numberOfLines={1}>
                   {b.displayType} · {b.dateText}
                 </Text>

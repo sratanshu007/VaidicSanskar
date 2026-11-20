@@ -12,6 +12,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../theme/colors';
 import { serif } from '../../theme/styles';
+import { getPoojaImage } from '../../utils/poojaImages';
 
 const SAMAGRI_ITEMS = [
   'Panchamrit',
@@ -79,9 +80,9 @@ export default function PoojaDetailScreen({ navigation, route }) {
         {/* BANNER IMAGE WITH ROUNDED EDGES */}
         <View style={s.imageBannerCard}>
           <Image
-            source={require('../../../assets/vedic_puja_banner.jpg')}
+            source={p?.image || getPoojaImage(p)}
             style={s.bannerImage}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         </View>
 
@@ -230,11 +231,14 @@ const s = StyleSheet.create({
     paddingBottom: 120,
   },
   imageBannerCard: {
-    height: 200,
-    borderRadius: 18,
+    height: 250,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#541016',
-    elevation: 3,
+    backgroundColor: '#FDF7EC',
+    borderWidth: 1.5,
+    borderColor: '#EFE3D3',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bannerImage: {
     width: '100%',

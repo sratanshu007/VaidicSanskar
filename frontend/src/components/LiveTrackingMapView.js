@@ -1,39 +1,75 @@
-import React, { useRef, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { getMapplsRoute, DEFAULT_COORDS } from '../services/mapplsService';
 
 /**
  * Uber/Rapido-Style Live Tracking Map for VaidicSanskar
- * - Pandit GPS Location marker with saffron halo
+ * - Pandit GPS Location marker with saffron pulse halo
  * - Devotee destination address pin
- * - Dynamic route polyline connecting both
- * - Live bounds fitting & road distance display
+ * - Real Mappls road route polyline connecting both
+ * - Live bounds fitting & road distance/ETA updates
  */
 export default function LiveTrackingMapView({
-  userLocation = { latitude: 28.5355, longitude: 77.3910 },
+  userLocation = DEFAULT_COORDS,
   panditLocation = { latitude: 28.5520, longitude: 77.3780 },
   distanceKm = '2.4',
   etaMinutes = '12',
+  isStale = false,
   style,
 }) {
   const webViewRef = useRef(null);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const lastFetchedRouteRef = useRef('');
 
-  const uLat = userLocation?.latitude || 28.5355;
-  const uLng = userLocation?.longitude || 77.3910;
-  const pLat = panditLocation?.latitude || 28.5520;
-  const pLng = panditLocation?.longitude || 77.3780;
+  const uLat = Number(userLocation?.latitude) || DEFAULT_COORDS.latitude;
+  const uLng = Number(userLocation?.longitude) || DEFAULT_COORDS.longitude;
+  const pLat = Number(panditLocation?.latitude) || 28.5520;
+  const pLng = Number(panditLocation?.longitude) || 77.3780;
+
+  // Fetch real road route from Mappls Direction API
+  useEffect(() => {
+    const key = `${pLat.toFixed(3)},${pLng.toFixed(3)}->${uLat.toFixed(3)},${uLng.toFixed(3)}`;
+    if (lastFetchedRouteRef.current === key) return;
+    lastFetchedRouteRef.current = key;
+
+    let isMounted = true;
+    getMapplsRoute({ latitude: pLat, longitude: pLng }, { latitude: uLat, longitude: uLng })
+      .then((res) => {
+        if (isMounted && res?.coordinates && res.coordinates.length > 0) {
+          setRouteCoordinates(res.coordinates);
+        }
+      })
+      .catch((err) => {
+        console.log('Error fetching Mappls route:', err?.message);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pLat, pLng, uLat, uLng]);
 
   // Push updated location coordinates to WebView without reloading page
   useEffect(() => {
     if (webViewRef.current) {
+      const coordsJson = JSON.stringify(routeCoordinates);
       const script = `
         if (window.updatePanditPosition) {
-          window.updatePanditPosition(${pLat}, ${pLng}, "${distanceKm}", "${etaMinutes}");
+          window.updatePanditPosition(${pLat}, ${pLng}, "${distanceKm}", "${etaMinutes}", ${coordsJson});
         }
       `;
       webViewRef.current.injectJavaScript(script);
     }
-  }, [pLat, pLng, distanceKm, etaMinutes]);
+  }, [pLat, pLng, distanceKm, etaMinutes, routeCoordinates]);
+
+  const initialRouteJson = JSON.stringify(
+    routeCoordinates.length > 0
+      ? routeCoordinates
+      : [
+          [pLat, pLng],
+          [uLat, uLng],
+        ]
+  );
 
   const mapHtml = `
     <!DOCTYPE html>
@@ -68,13 +104,6 @@ export default function LiveTrackingMapView({
           70% { box-shadow: 0 0 0 16px rgba(212, 139, 40, 0); }
           100% { box-shadow: 0 0 0 0 rgba(212, 139, 40, 0); }
         }
-
-        .eta-pill {
-          background: #67101F; color: white; font-family: -apple-system, sans-serif;
-          font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 20px;
-          border: 1.5px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-          white-space: nowrap; text-align: center;
-        }
       </style>
     </head>
     <body>
@@ -84,7 +113,7 @@ export default function LiveTrackingMapView({
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
-          attribution: '© VaidicSanskar / OSM'
+          attribution: '© Mappls / OSM'
         }).addTo(map);
 
         // Yajman Home Pin
@@ -105,33 +134,35 @@ export default function LiveTrackingMapView({
         });
         var panditMarker = L.marker([${pLat}, ${pLng}], { icon: panditIcon }).addTo(map);
 
-        // Route Polyline
-        var routeLine = L.polyline([
-          [${pLat}, ${pLng}],
-          [(${pLat} + ${uLat}) / 2 + 0.003, (${pLng} + ${uLng}) / 2 - 0.002],
-          [${uLat}, ${uLng}]
-        ], {
+        // Initial Route Polyline
+        var routePoints = ${initialRouteJson};
+        var routeLine = L.polyline(routePoints, {
           color: '#67101F',
           weight: 4.5,
           opacity: 0.85,
-          dashArray: '6, 8',
-          lineCap: 'round'
+          lineCap: 'round',
+          lineJoin: 'round'
         }).addTo(map);
 
         // Fit Bounds
-        var group = new L.featureGroup([homeMarker, panditMarker]);
-        map.fitBounds(group.getBounds().pad(0.35));
+        function fitMap() {
+          var group = new L.featureGroup([homeMarker, panditMarker]);
+          map.fitBounds(group.getBounds().pad(0.35));
+        }
+        fitMap();
 
-        // Dynamic update function called from React Native
-        window.updatePanditPosition = function(newLat, newLng, dist, eta) {
+        // Dynamic update function called from React Native without reloading
+        window.updatePanditPosition = function(newLat, newLng, dist, eta, newCoords) {
           panditMarker.setLatLng([newLat, newLng]);
-          routeLine.setLatLngs([
-            [newLat, newLng],
-            [(newLat + ${uLat}) / 2 + 0.002, (newLng + ${uLng}) / 2 - 0.001],
-            [${uLat}, ${uLng}]
-          ]);
-          var updatedGroup = new L.featureGroup([homeMarker, panditMarker]);
-          map.fitBounds(updatedGroup.getBounds().pad(0.35));
+          if (newCoords && Array.isArray(newCoords) && newCoords.length > 0) {
+            routeLine.setLatLngs(newCoords);
+          } else {
+            routeLine.setLatLngs([
+              [newLat, newLng],
+              [${uLat}, ${uLng}]
+            ]);
+          }
+          fitMap();
         };
       </script>
     </body>
@@ -155,6 +186,11 @@ export default function LiveTrackingMapView({
           </View>
         )}
       />
+      {isStale && (
+        <View style={styles.staleBanner}>
+          <Text style={styles.staleText}>⚠️ GPS सिग्नल प्रतीक्षारत (Reconnecting...)</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -166,6 +202,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#FAF5EE',
+    position: 'relative',
   },
   webView: {
     flex: 1,
@@ -176,5 +213,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FAF5EE',
+  },
+  staleBanner: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(103, 16, 31, 0.88)',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  staleText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

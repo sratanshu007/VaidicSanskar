@@ -18,6 +18,7 @@ import { serif } from '../../theme/styles';
 import { useLanguage } from '../../context/LanguageContext';
 import { useApp } from '../../context/AppContext';
 import { getCurrentUserLocation } from '../../services/mapplsService';
+import LocationPickerModal from '../../components/LocationPickerModal';
 
 const TIME_SLOTS = [
   '06:30 AM - 08:30 AM',
@@ -67,6 +68,13 @@ export default function PujaBookingScreen({ navigation, route }) {
     });
   }, []);
 
+  // Booking Type: NORMAL (Plan Ahead) vs URGENT (Within 24 Hours)
+  const [bookingType, setBookingType] = useState('NORMAL');
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
+
+  // Urgent surcharge calculation (min ₹350 or 15%)
+  const urgentSurcharge = bookingType === 'URGENT' ? Math.max(350, Math.round(passedPuja.price * 0.15)) : 0;
+
   // Form states
   const [selectedDate, setSelectedDate] = useState(availableDates[0]?.formatted || '');
   const [selectedTime, setSelectedTime] = useState(TIME_SLOTS[1]);
@@ -94,16 +102,16 @@ export default function PujaBookingScreen({ navigation, route }) {
       try {
         setFetchingGps(true);
         const res = await getCurrentUserLocation();
-        if (res?.coords) {
+        if (res?.success && res?.coords) {
           if (res.coords.formattedAddress) {
             setAddress(res.coords.formattedAddress);
           }
-          if (res.coords.locality || res.coords.subLocality) {
-            setArea(`${res.coords.subLocality || ''}, ${res.coords.locality || ''}`.replace(/^, /, ''));
+          if (res.coords.locality || res.coords.subLocality || res.coords.city) {
+            setArea(`${res.coords.subLocality || ''}, ${res.coords.locality || res.coords.city || ''}`.replace(/^, /, ''));
           }
           setPinCoordinates({
-            lat: res.coords.latitude || 28.5355,
-            lng: res.coords.longitude || 77.3910,
+            lat: res.coords.latitude,
+            lng: res.coords.longitude,
           });
         }
       } catch (e) {
@@ -125,6 +133,8 @@ export default function PujaBookingScreen({ navigation, route }) {
     const bookingDraft = {
       ritualId: passedPuja.id,
       ritualName: passedPuja.name,
+      bookingType,
+      urgentSurcharge,
       serviceCharge: passedPuja.price,
       duration: passedPuja.duration,
       scheduledDate: selectedDate,
@@ -185,7 +195,60 @@ export default function PujaBookingScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* 1. Date Selection */}
+        {/* 1. Booking Type Selector (Plan Ahead vs Urgent Booking) */}
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>Select Booking Type (बुकिंग का प्रकार)</Text>
+
+          {/* Normal Booking Card */}
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => setBookingType('NORMAL')}
+            style={[s.typeCard, bookingType === 'NORMAL' && s.typeCardNormalActive]}
+          >
+            <View style={s.typeRadioCircle}>
+              {bookingType === 'NORMAL' && <View style={s.typeRadioDot} />}
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={s.typeHeaderRow}>
+                <Text style={s.typeTitle}>Plan Ahead (नियमित बुकिंग)</Text>
+                <View style={s.standardBadge}>
+                  <Text style={s.standardBadgeText}>Standard Dakshina</Text>
+                </View>
+              </View>
+              <Text style={s.typeSub}>
+                Schedule in advance with verified Acharyas. Regular pooja dakshina applies.
+              </Text>
+              <Text style={s.typePriceTag}>₹ {passedPuja.price.toLocaleString('en-IN')}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Urgent Booking Card */}
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => setBookingType('URGENT')}
+            style={[s.typeCard, bookingType === 'URGENT' && s.typeCardUrgentActive, { marginTop: 12 }]}
+          >
+            <View style={[s.typeRadioCircle, bookingType === 'URGENT' && { borderColor: '#D48B28' }]}>
+              {bookingType === 'URGENT' && <View style={[s.typeRadioDot, { backgroundColor: '#D48B28' }]} />}
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={s.typeHeaderRow}>
+                <Text style={s.typeTitle}>Need a Pandit Quickly? (तत्काल बुकिंग)</Text>
+                <View style={s.urgentBadge}>
+                  <Text style={s.urgentBadgeText}>⚡ Urgent Priority</Text>
+                </View>
+              </View>
+              <Text style={s.typeSub}>
+                Priority matching with certified pandits within 24 hours. Includes urgent surcharge.
+              </Text>
+              <Text style={[s.typePriceTag, { color: '#B45309' }]}>
+                ₹ {passedPuja.price.toLocaleString('en-IN')} + ₹ {urgentSurcharge} (Urgent Surcharge)
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* 2. Date Selection */}
         <View style={s.section}>
           <Text style={s.sectionLabel}>Select Date</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.dateScroll}>
@@ -272,11 +335,21 @@ export default function PujaBookingScreen({ navigation, route }) {
             </View>
           </View>
 
-          <View style={s.mapPinBadge}>
-            <Ionicons name="navigate-circle" size={16} color="#1E8E4A" />
-            <Text style={s.mapPinText}>
-              Exact Map Pin Locked ({pinCoordinates.lat.toFixed(4)}, {pinCoordinates.lng.toFixed(4)})
-            </Text>
+          <View style={s.mapPinActionRow}>
+            <View style={[s.mapPinBadge, { flex: 1 }]}>
+              <Ionicons name="navigate-circle" size={16} color="#1E8E4A" />
+              <Text style={s.mapPinText} numberOfLines={1}>
+                Pin: {pinCoordinates.lat.toFixed(4)}, {pinCoordinates.lng.toFixed(4)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setLocationPickerVisible(true)}
+              style={s.adjustMapBtn}
+            >
+              <Ionicons name="map-outline" size={15} color="#67101F" style={{ marginRight: 4 }} />
+              <Text style={s.adjustMapBtnText}>मानचित्र पर चुनें</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -395,8 +468,13 @@ export default function PujaBookingScreen({ navigation, route }) {
         <View style={s.priceSummaryCol}>
           <Text style={s.priceLabel}>Estimated Total</Text>
           <Text style={s.priceValue}>
-            ₹ {(passedPuja.price + (samagriOption === 'PANDIT_BRINGS' ? passedPuja.samagri : 0) + 50).toLocaleString('en-IN')}
+            ₹ {(passedPuja.price + urgentSurcharge + (samagriOption === 'PANDIT_BRINGS' ? passedPuja.samagri : 0) + 50).toLocaleString('en-IN')}
           </Text>
+          {bookingType === 'URGENT' && (
+            <Text style={{ fontSize: 10, color: '#B45309', fontWeight: '700' }}>
+              Incl. ₹{urgentSurcharge} urgent charge
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -407,6 +485,19 @@ export default function PujaBookingScreen({ navigation, route }) {
           <Text style={s.proceedBtnText}>Review Booking  →</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Interactive OSM / Leaflet Map Location Picker Modal */}
+      <LocationPickerModal
+        visible={locationPickerVisible}
+        onClose={() => setLocationPickerVisible(false)}
+        initialCoords={pinCoordinates}
+        onConfirm={(loc) => {
+          setPinCoordinates({ lat: loc.lat, lng: loc.lng });
+          if (loc.formattedAddress) {
+            setAddress(loc.formattedAddress);
+          }
+        }}
+      />
 
       {/* Samagri Checklist Modal */}
       <Modal
@@ -813,5 +904,106 @@ const s = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14.5,
     fontWeight: '700',
+  },
+  typeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#EDE4DA',
+    padding: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  typeCardNormalActive: {
+    borderColor: '#67101F',
+    backgroundColor: '#FFFDFB',
+  },
+  typeCardUrgentActive: {
+    borderColor: '#D48B28',
+    backgroundColor: '#FFFBF0',
+  },
+  typeRadioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#67101F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  typeRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#67101F',
+  },
+  typeHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  typeTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2E1418',
+  },
+  standardBadge: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  standardBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B21A8',
+  },
+  urgentBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  urgentBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  typeSub: {
+    fontSize: 12,
+    color: '#7D686B',
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  typePriceTag: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#67101F',
+    marginTop: 6,
+  },
+  mapPinActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  adjustMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7EFE2',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E6D7C3',
+  },
+  adjustMapBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#67101F',
   },
 });

@@ -43,23 +43,23 @@ class PanditBookingStore {
           this.notify(false);
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   _persist() {
     try {
       if (this.booking) {
-        AsyncStorage.setItem(ACTIVE_BOOKING_KEY, JSON.stringify(this.booking)).catch(() => {});
+        AsyncStorage.setItem(ACTIVE_BOOKING_KEY, JSON.stringify(this.booking)).catch(() => { });
         const id = String(this.booking.id || this.booking._id || '');
         if (id) {
           const rest = (this.history || []).filter((h) => String(h.id || h._id) !== id);
           this.history = [this.booking, ...rest].slice(0, 30);
-          AsyncStorage.setItem(BOOKING_HISTORY_KEY, JSON.stringify(this.history)).catch(() => {});
+          AsyncStorage.setItem(BOOKING_HISTORY_KEY, JSON.stringify(this.history)).catch(() => { });
         }
       } else {
-        AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => {});
+        AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => { });
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   getHistory() {
@@ -73,10 +73,10 @@ class PanditBookingStore {
       rawStatus === 'PENDING_ACCEPTANCE'
         ? 'SEARCHING'
         : rawStatus === 'POOJA_STARTED'
-        ? 'IN_PROGRESS'
-        : rawStatus === 'EN_ROUTE'
-        ? 'ON_THE_WAY'
-        : rawStatus;
+          ? 'IN_PROGRESS'
+          : rawStatus === 'EN_ROUTE'
+            ? 'ON_THE_WAY'
+            : rawStatus;
 
     const merged = {
       ...(this.booking || {}),
@@ -260,19 +260,26 @@ class PanditBookingStore {
    * Step 2: Pandit accepts request (Atomic Lock simulation)
    */
   acceptBooking(pandit = DEMO_PANDIT) {
-    if (!this.booking || this.booking.status !== 'SEARCHING') return false;
+    if (!this.booking) return false;
+    if (this.booking.status !== 'SEARCHING' && this.booking.status !== 'ACCEPTED') return false;
 
     clearInterval(this.waveInterval);
     clearTimeout(this.dispatchTimeout);
 
     this.booking.status = 'ACCEPTED';
-    this.booking.pandit = { ...pandit };
+    if (pandit) {
+      this.booking.pandit = { ...(this.booking.pandit || {}), ...pandit };
+    }
     this.booking.acceptedAt = new Date().toISOString();
 
+    const poojaTitle = this.booking.pooja?.name || this.booking.ritualName || 'पूजा';
+    if (!Array.isArray(this.booking.chatMessages)) {
+      this.booking.chatMessages = [];
+    }
     this.booking.chatMessages.push({
       id: 'm-' + Date.now(),
       sender: 'pandit',
-      text: `प्रणाम यजमान जी 🙏 मैंने आपकी ${this.booking.pooja.name} की सेवा स्वीकार कर ली है।`,
+      text: `प्रणाम यजमान जी 🙏 मैंने आपकी ${poojaTitle} की सेवा स्वीकार कर ली है।`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
@@ -519,8 +526,8 @@ class PanditBookingStore {
     this.clearTimers();
     this.booking = null;
     this.history = [];
-    AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => {});
-    AsyncStorage.removeItem(BOOKING_HISTORY_KEY).catch(() => {});
+    AsyncStorage.removeItem(ACTIVE_BOOKING_KEY).catch(() => { });
+    AsyncStorage.removeItem(BOOKING_HISTORY_KEY).catch(() => { });
     this.notify();
   }
 }

@@ -39,7 +39,8 @@ class TalkToAstroStore {
     if (socket && typeof socket.on === 'function') {
       const handlePartnerPresence = (data) => {
         if (!data) return;
-        const partnerId = String(data.id || data.vendorId || 'V4569');
+        const partnerId = String(data.id || data.vendorId || '');
+        if (!partnerId) return;
         const existingIdx = this.astrologers.findIndex((a) => String(a.id) === partnerId);
         const mapped = {
           id: partnerId,

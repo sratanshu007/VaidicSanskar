@@ -27,6 +27,7 @@ export const NotificationProvider = ({ children }) => {
 
   const slideAnim = useRef(new Animated.Value(-200)).current;
   const timeoutRef = useRef(null);
+  const lastNotifRef = useRef({ text: '', time: 0 });
 
   // Load persisted notifications
   useEffect(() => {
@@ -91,6 +92,17 @@ export const NotificationProvider = ({ children }) => {
         otp = null,
       } = opts;
 
+      // Debounce rapid duplicate notifications (within 2.5s) to prevent jitter/glitches
+      const notifKey = `${title}__${message}`;
+      const now = Date.now();
+      if (
+        now - lastNotifRef.current.time < 2500 &&
+        lastNotifRef.current.text === notifKey
+      ) {
+        return;
+      }
+      lastNotifRef.current = { text: notifKey, time: now };
+
       // Extract OTP if present in message or passed directly
       let extractedOtp = otp;
       if (!extractedOtp) {
@@ -100,12 +112,12 @@ export const NotificationProvider = ({ children }) => {
         }
       }
 
-      // Vibrate like real incoming push/SMS
+      // Gentle subtle notification pulse (only single mild haptic tick, no whole-screen vibrating buzzing)
       try {
         if (Platform.OS === 'android') {
-          Vibration.vibrate([0, 160, 90, 180]);
+          Vibration.vibrate(80);
         } else {
-          Vibration.vibrate(200);
+          Vibration.vibrate(80);
         }
       } catch (e) {}
 
@@ -132,10 +144,11 @@ export const NotificationProvider = ({ children }) => {
         return updated;
       });
 
+      // Smooth slide-in without wild bouncing
       Animated.spring(slideAnim, {
         toValue: 0,
-        tension: 90,
-        friction: 9,
+        tension: 65,
+        friction: 11,
         useNativeDriver: true,
       }).start();
 
@@ -179,9 +192,10 @@ export const NotificationProvider = ({ children }) => {
   // Listen to global socket updates for instant on-screen notifications
   useEffect(() => {
     const handleBookingAccepted = (data) => {
+      const pName = data?.assignedVendor?.name || data?.vendor?.name || data?.panditName || 'पंडित जी';
       showNotification({
         title: 'पंडित जी मिल गए! 🙏',
-        message: `${data?.panditName || 'पंडित जी'} ने आपकी पूजा स्वीकार कर ली है। वे जल्द ही आपसे संपर्क करेंगे।`,
+        message: `${pName} ने आपकी पूजा स्वीकार कर ली है। वे जल्द ही आपसे संपर्क करेंगे।`,
         type: 'pandit',
       });
     };

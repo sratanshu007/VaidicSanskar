@@ -20,9 +20,15 @@ import talkToAstroStore, { RECHARGE_PACKS } from '../../services/talkToAstroStor
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
 import socket from '../../services/socket';
 import { useKeyboardLift } from '../../utils/useKeyboardLift';
+import { useApp } from '../../context/AppContext';
 
 export default function AstroChatScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { user } = useApp();
+  const currentUserId = user?.id || user?._id || user?.phone || 'user';
+  const currentUserName = user?.name || 'यजमान (Customer)';
+  const currentUserPhone = user?.phone || '';
+
   const [session, setSession] = useState(talkToAstroStore.getActiveSession());
   const [inputText, setInputText] = useState('');
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -53,7 +59,7 @@ export default function AstroChatScreen({ navigation }) {
     // Notify Astrologer Partner App about incoming live chat consultation
     const cur = talkToAstroStore.getActiveSession();
     if (cur) {
-      const targetId = cur.astrologer?.id || cur.astrologerId || 'ASTRO-7890';
+      const targetId = cur.astrologer?.id || cur.astrologerId || cur.astrologer?._id || '';
       const channelName = cur.channelName || `astro_chat_${cur.id || Date.now()}`;
       chatChannelRef.current = channelName;
       routedRecipientRef.current = targetId;
@@ -61,9 +67,9 @@ export default function AstroChatScreen({ navigation }) {
         channelName,
         recipientId: targetId,
         caller: {
-          id: 'U101',
-          name: 'Sratanshu Shukla',
-          phone: '+91 63936 20028',
+          id: currentUserId,
+          name: currentUserName,
+          phone: currentUserPhone,
         },
         mode: 'chat',
         rate: cur.rate || 5,
@@ -111,7 +117,7 @@ export default function AstroChatScreen({ navigation }) {
     socket.emit('astro:chat:send', {
       sessionId: session?.id || 'SES-CURRENT',
       channelName: chatChannelRef.current || session?.channelName,
-      recipientId: routedRecipientRef.current || session?.astrologer?.id || session?.astrologerId || 'ASTRO-7890',
+      recipientId: routedRecipientRef.current || session?.astrologer?.id || session?.astrologerId || session?.astrologer?._id || '',
       text,
       sender: 'user',
       message: {

@@ -49,6 +49,19 @@ import WishlistScreen from '../screens/estore/WishlistScreen';
 import LibraryScreen from '../screens/library/LibraryScreen';
 import ReaderScreen from '../screens/library/ReaderScreen';
 
+// Sahitya Sangrah (साहित्य संग्रह)
+import SahityaHomeScreen from '../screens/sahitya/SahityaHomeScreen';
+import SahityaCategoryScreen from '../screens/sahitya/SahityaCategoryScreen';
+import SahityaBookDetailScreen from '../screens/sahitya/SahityaBookDetailScreen';
+import SahityaFreeReaderScreen from '../screens/sahitya/SahityaFreeReaderScreen';
+import SahityaAudioPaywallScreen from '../screens/sahitya/SahityaAudioPaywallScreen';
+import SahityaCheckoutScreen from '../screens/sahitya/SahityaCheckoutScreen';
+import SahityaMyBooksScreen from '../screens/sahitya/SahityaMyBooksScreen';
+import SahityaOrdersScreen from '../screens/sahitya/SahityaOrdersScreen';
+import SahityaMySubscriptionScreen from '../screens/sahitya/SahityaMySubscriptionScreen';
+import SahityaSubscriptionSuccessScreen from '../screens/sahitya/SahityaSubscriptionSuccessScreen';
+import SahityaSettingsScreen from '../screens/sahitya/SahityaSettingsScreen';
+
 // Module 4 — Subscription
 import DailyPanditScreen from '../screens/subscription/DailyPanditScreen';
 import MyScheduleScreen from '../screens/subscription/MyScheduleScreen';
@@ -112,9 +125,9 @@ export default function RootNavigator() {
         {/* Module 1 */}
         <Stack.Screen name="PujaBrowse" component={PujaBrowseScreen} />
         <Stack.Screen name="PujaBooking" component={PujaBookingScreen} />
-        <Stack.Screen name="Searching" component={SearchingScreen} />
-        <Stack.Screen name="SearchingScreen" component={SearchingScreen} />
-        <Stack.Screen name="BookingStatus" component={BookingStatusScreen} />
+        <Stack.Screen name="Searching" component={SearchingScreen} options={{ gestureEnabled: false }} />
+        <Stack.Screen name="SearchingScreen" component={SearchingScreen} options={{ gestureEnabled: false }} />
+        <Stack.Screen name="BookingStatus" component={BookingStatusScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="Review" component={ReviewScreen} />
         <Stack.Screen name="PanditBooking" component={PujaBrowseScreen} />
         <Stack.Screen name="PanditList" component={PanditListScreen} />
@@ -138,6 +151,19 @@ export default function RootNavigator() {
         {/* Module 3 */}
         <Stack.Screen name="Library" component={LibraryScreen} />
         <Stack.Screen name="Reader" component={ReaderScreen} />
+
+        {/* Sahitya Sangrah */}
+        <Stack.Screen name="SahityaHome" component={SahityaHomeScreen} />
+        <Stack.Screen name="SahityaCategory" component={SahityaCategoryScreen} />
+        <Stack.Screen name="SahityaBookDetail" component={SahityaBookDetailScreen} />
+        <Stack.Screen name="SahityaFreeReader" component={SahityaFreeReaderScreen} />
+        <Stack.Screen name="SahityaAudioPaywall" component={SahityaAudioPaywallScreen} />
+        <Stack.Screen name="SahityaCheckout" component={SahityaCheckoutScreen} />
+        <Stack.Screen name="SahityaMyBooks" component={SahityaMyBooksScreen} />
+        <Stack.Screen name="SahityaOrders" component={SahityaOrdersScreen} />
+        <Stack.Screen name="SahityaMySubscription" component={SahityaMySubscriptionScreen} />
+        <Stack.Screen name="SahityaSubscriptionSuccess" component={SahityaSubscriptionSuccessScreen} />
+        <Stack.Screen name="SahityaSettings" component={SahityaSettingsScreen} />
 
         {/* Module 4 */}
         <Stack.Screen name="DailyPandit" component={DailyPanditScreen} />

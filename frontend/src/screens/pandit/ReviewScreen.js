@@ -194,19 +194,19 @@ export default function ReviewScreen({ navigation }) {
 
             <View style={s.invDivider} />
 
-            <View style={s.invRow}><Text style={s.invK}>बुकिंग आईडी:</Text><Text style={s.invV}>#{booking?.id || 'BK-1029'}</Text></View>
-            <View style={s.invRow}><Text style={s.invK}>पूजा का नाम:</Text><Text style={s.invV}>{booking?.pooja?.name || 'Satyanarayan Katha'}</Text></View>
+            <View style={s.invRow}><Text style={s.invK}>बुकिंग आईडी:</Text><Text style={s.invV}>#{booking?.id || booking?._id || ''}</Text></View>
+            <View style={s.invRow}><Text style={s.invK}>पूजा का नाम:</Text><Text style={s.invV}>{booking?.pooja?.name || booking?.title || 'वैदिक पूजा'}</Text></View>
             <View style={s.invRow}><Text style={s.invK}>पंडित जी:</Text><Text style={s.invV}>{booking?.pandit?.name || 'पंडित जी'}</Text></View>
             <View style={s.invRow}><Text style={s.invK}>यजमान:</Text><Text style={s.invV}>{booking?.yajmanName || 'यजमान'}</Text></View>
             <View style={s.invRow}><Text style={s.invK}>स्थान:</Text><Text style={s.invV} numberOfLines={1}>{booking?.area || booking?.address || 'लाइव यजमान स्थान'}</Text></View>
 
             <View style={s.invDivider} />
 
-            <View style={s.invRow}><Text style={s.invK}>मूल दक्षिणा:</Text><Text style={s.invV}>₹{booking?.dakshina || 2100}</Text></View>
-            <View style={s.invRow}><Text style={s.invK}>सामग्री शुल्क:</Text><Text style={s.invV}>₹{booking?.samagriFee || 600}</Text></View>
+            <View style={s.invRow}><Text style={s.invK}>मूल दक्षिणा:</Text><Text style={s.invV}>₹{booking?.dakshina ?? booking?.amount ?? 0}</Text></View>
+            <View style={s.invRow}><Text style={s.invK}>सामग्री शुल्क:</Text><Text style={s.invV}>₹{booking?.samagriFee ?? 0}</Text></View>
             <View style={s.invRow}><Text style={s.invK}>प्लेटफॉर्म शुल्क:</Text><Text style={s.invV}>₹50</Text></View>
             {tip > 0 && <View style={s.invRow}><Text style={s.invK}>दक्षिणा टिप:</Text><Text style={s.invV}>₹{tip}</Text></View>}
-            <View style={s.invRow}><Text style={s.invK}>GST (5%):</Text><Text style={s.invV}>₹{booking?.gst || 140}</Text></View>
+            <View style={s.invRow}><Text style={s.invK}>GST (5%):</Text><Text style={s.invV}>₹{booking?.gst ?? Math.round(((booking?.dakshina || 0) + (booking?.samagriFee || 0)) * 0.05)}</Text></View>
 
             <View style={s.invDivider} />
 

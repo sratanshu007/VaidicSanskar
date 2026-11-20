@@ -24,11 +24,22 @@ class SocketService {
     this.connect();
   }
 
+  setActiveUser(userId) {
+    if (userId) {
+      this.activeUserId = String(userId);
+      if (this.socket && this.connected) {
+        this.socket.emit('user:join', { userId: this.activeUserId });
+      }
+    }
+  }
+
   connect(token) {
     const authToken = token || getAuthToken();
     if (this.socket && this.connected) {
       if (authToken) this.socket.auth = { token: authToken };
-      this.socket.emit('user:join', { userId: this.activeUserId || 'U101' });
+      if (this.activeUserId) {
+        this.socket.emit('user:join', { userId: this.activeUserId });
+      }
       this.socket.emit('astro:get:online');
       return;
     }
@@ -38,7 +49,6 @@ class SocketService {
       return;
     }
     try {
-      this.activeUserId = this.activeUserId || 'U101';
       const targetHost = SOCKET_URL || API_URL;
       const socketHost = targetHost.replace(/\/api\/partner\/?$/, '').replace(/\/api\/?$/, '');
 
@@ -68,7 +78,9 @@ class SocketService {
         }
 
         // Join personal user room for incoming calls & consultation signaling
-        this.socket.emit('user:join', { userId: this.activeUserId || 'U101' });
+        if (this.activeUserId) {
+          this.socket.emit('user:join', { userId: this.activeUserId });
+        }
 
         // Query server for latest live astrologer list
         this.socket.emit('astro:get:online');
@@ -99,7 +111,11 @@ class SocketService {
         'booking:completion_requested',
         'booking:completed',
         'booking:cancelled',
+        'booking:cancel',
+        'instant:cancel',
+        'job:cancel',
         'chat:message',
+        'booking:chat',
         'chat:user-typing',
         'chat:message-read',
         'chat:message-delivered',
@@ -185,14 +201,18 @@ class SocketService {
 
   join(bookingId) {
     if (bookingId) {
-      this.emit('subscribe:booking', { bookingId });
-      this.emit('booking:join', { bookingId });
+      const bStr = String(bookingId);
+      this.emit('subscribe:booking', { bookingId: bStr });
+      this.emit('booking:join', { bookingId: bStr });
+      this.emit('join:room', { room: bStr, bookingId: bStr });
     }
   }
 
   leave(bookingId) {
     if (bookingId) {
-      this.emit('booking:leave', { bookingId });
+      const bStr = String(bookingId);
+      this.emit('booking:leave', { bookingId: bStr });
+      this.emit('leave:room', { room: bStr, bookingId: bStr });
     }
   }
 

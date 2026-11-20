@@ -19,6 +19,28 @@ import { panditBookingStore } from '../../services/panditBookingStore';
 import socket from '../../services/socket';
 import { useKeyboardLift } from '../../utils/useKeyboardLift';
 
+/**
+ * Phone Number Detection & Blocker:
+ * Prevents sharing of phone numbers to strictly comply with privacy policy and prevent platform disintermediation.
+ */
+export function isPhoneNumberBlocked(input) {
+  if (!input || typeof input !== 'string') return false;
+
+  // 1. Standard Indian 10-digit mobile number with optional +91/0 prefix and separators
+  const phoneRegex = /(?:(?:\+|0{0,2})91[\s.-]*)?(?:[6-9][\s.-]*(?:\d[\s.-]*){9})/i;
+  if (phoneRegex.test(input)) return true;
+
+  // 2. Any sequence containing 10 or more digits
+  const digitsOnly = input.replace(/[^0-9]/g, '');
+  if (digitsOnly.length >= 10) return true;
+
+  // 3. Obfuscated digits with spaces/dots/dashes
+  const spacedDigits = input.match(/(?:\d[\s\-_.,/]*){10,}/g);
+  if (spacedDigits && spacedDigits.length > 0) return true;
+
+  return false;
+}
+
 const QUICK_REPLIES = [
   'मैं घर पर ही हूँ 🙏',
   'सामग्री तैयार है',
@@ -31,6 +53,7 @@ export default function ChatScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const booking = panditBookingStore.getBooking();
   const name = route.params?.name || booking?.pandit?.name || 'पंडित जी';
+  const bId = String(booking?.id || route.params?.bookingId || '');
   const [messages, setMessages] = useState(booking?.chatMessages || []);
   const [text, setText] = useState('');
   const listRef = useRef();
@@ -39,36 +62,65 @@ export default function ChatScreen({ navigation, route }) {
   });
 
   useEffect(() => {
-    const bookingId = booking?.id || route.params?.bookingId;
-    if (bookingId) {
-      socket.send('booking:join', { bookingId });
+    if (bId) {
+      socket.join(bId);
     }
-    const off = socket.on('chat:message', (m) => {
-      if (m?.from === 'pandit' || m?.sender === 'pandit') {
-        panditBookingStore.sendChatMessage('pandit', m.text);
-      }
-    });
-    const unsub = panditBookingStore.subscribe((b) => {
-      if (b?.chatMessages) {
+
+    const handleIncoming = (m) => {
+      if (!m || !m.text) return;
+      if (m.bookingId && bId && String(m.bookingId) !== String(bId)) return;
+      if (m.from === 'yajman' || m.sender === 'yajman') return; // ignore own echo
+
+      panditBookingStore.sendChatMessage('pandit', m.text);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    };
+
+    const unsubMsg = socket.on('chat:message', handleIncoming);
+    const unsubChat = socket.on('booking:chat', handleIncoming);
+
+    const unsubStore = panditBookingStore.subscribe((b) => {
+      if (b?.chatMessages && Array.isArray(b.chatMessages)) {
         setMessages([...b.chatMessages]);
       }
     });
+
     return () => {
-      if (typeof off === 'function') off();
-      unsub();
+      if (typeof unsubMsg === 'function') unsubMsg();
+      if (typeof unsubChat === 'function') unsubChat();
+      if (typeof unsubStore === 'function') unsubStore();
     };
-  }, [booking?.id]);
+  }, [bId]);
 
   const send = (msgText) => {
     const content = (msgText || text).trim();
     if (!content) return;
 
+    // Check privacy compliance: block phone numbers
+    if (isPhoneNumberBlocked(content)) {
+      Alert.alert(
+        '⚠️ फोन नंबर साझा करना प्रतिबंधित है',
+        'गोपनीयता नीति (Privacy Policy) के अनुसार व्यक्तिगत मोबाइल नंबर चैट में भेजना प्रतिबंधित है।\n\nपंडित जी से संपर्क करने के लिए "Masked Call" सुविधा का उपयोग करें।',
+        [{ text: 'समझ गया' }]
+      );
+      return;
+    }
+
     panditBookingStore.sendChatMessage('yajman', content);
-    socket.send('chat:message', {
-      bookingId: booking?.id || route.params?.bookingId,
+
+    const payload = {
+      bookingId: bId || 'LIVE',
+      id: 'm-' + Date.now(),
+      sender: 'yajman',
       from: 'yajman',
+      to: 'pandit',
       text: content,
-    });
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
+    };
+
+    socket.emit('chat:message', payload);
+    socket.emit('booking:chat', payload);
+
     setText('');
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
   };
@@ -95,6 +147,14 @@ export default function ChatScreen({ navigation, route }) {
           </TouchableOpacity>
         }
       />
+
+      {/* TOP PRIVACY BANNER */}
+      <View style={s.privacyNotice}>
+        <MaterialCommunityIcons name="shield-lock" size={15} color="#B45309" />
+        <Text style={s.privacyNoticeText}>
+          सुरक्षित संचार: व्यक्तिगत मोबाइल नंबर साझा करना प्रतिबंधित है।
+        </Text>
+      </View>
 
       <FlatList
         ref={listRef}
@@ -175,6 +235,22 @@ const s = StyleSheet.create({
     borderColor: '#EFE4D6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  privacyNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FDE68A',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  privacyNoticeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#92400E',
   },
   bubble: {
     maxWidth: '80%',

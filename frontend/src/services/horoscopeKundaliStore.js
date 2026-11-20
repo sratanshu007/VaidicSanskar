@@ -221,7 +221,7 @@ class HoroscopeKundaliStore {
       tob,
       pob,
       status: 'ANALYZING', // SUBMITTED | ANALYZING | COMPLETED
-      assignedPandit: 'पूज्य आचार्य विद्याधर शास्त्री (काशी पीठाधीश्वर)',
+      assignedPandit: 'प्रमाणित वैदिक ज्योतिषाचार्य',
       createdAt: new Date().toLocaleDateString('hi-IN', {
         day: 'numeric',
         month: 'short',

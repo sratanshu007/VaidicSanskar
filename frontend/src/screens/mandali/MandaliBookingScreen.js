@@ -17,7 +17,6 @@ import colors from '../../theme/colors';
 import styles, { serif, radius, shadow } from '../../theme/styles';
 import { Header } from '../../components/ui';
 import bhajanMandaliStore, {
-  DEMO_MANDALIS,
   MANDALI_OCCASIONS,
 } from '../../services/bhajanMandaliStore';
 import { resolveDevotionalSource } from '../../constants/devotionalAssets';
@@ -110,7 +109,7 @@ export default function MandaliBookingScreen({ navigation, route }) {
 
     MandaliService.enquiry({
       name: user?.name || 'Yajman',
-      phone: user?.phone || '9876543210',
+      phone: user?.phone || '',
       eventType: occasion || 'श्री सुंदरकांड पाठ उत्सव',
       eventDate: dateStr,
       eventTime: timeStr,

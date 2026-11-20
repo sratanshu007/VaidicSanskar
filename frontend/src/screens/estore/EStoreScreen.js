@@ -136,10 +136,17 @@ export default function EStoreScreen({ navigation, route }) {
       setActiveBannerIndex((prev) => {
         const next = (prev + 1) % PROMO_BANNERS.length;
         try {
-          bannerSliderRef.current?.scrollToOffset({
-            offset: next * BANNER_WIDTH,
-            animated: true,
-          });
+          if (typeof bannerSliderRef.current?.scrollTo === 'function') {
+            bannerSliderRef.current.scrollTo({
+              x: next * BANNER_WIDTH,
+              animated: true,
+            });
+          } else if (typeof bannerSliderRef.current?.scrollToOffset === 'function') {
+            bannerSliderRef.current.scrollToOffset({
+              offset: next * BANNER_WIDTH,
+              animated: true,
+            });
+          }
         } catch (_) {}
         return next;
       });
@@ -305,25 +312,19 @@ export default function EStoreScreen({ navigation, route }) {
           <>
             {/* PROMOTIONAL BANNER CAROUSEL (AUTO-SLIDING & MANUAL SWIPE) */}
             <View style={s.carouselWrapper}>
-              <FlatList
+              <ScrollView
                 ref={bannerSliderRef}
-                data={PROMO_BANNERS}
-                keyExtractor={(item) => item.id}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                getItemLayout={(_, index) => ({
-                  length: BANNER_WIDTH,
-                  offset: BANNER_WIDTH * index,
-                  index,
-                })}
-                onScrollToIndexFailed={() => {}}
                 onMomentumScrollEnd={(e) => {
                   const idx = Math.round(e.nativeEvent.contentOffset.x / BANNER_WIDTH);
                   if (idx >= 0 && idx < PROMO_BANNERS.length) setActiveBannerIndex(idx);
                 }}
-                renderItem={({ item }) => (
+              >
+                {PROMO_BANNERS.map((item) => (
                   <TouchableOpacity
+                    key={item.id}
                     style={s.promoBannerCard}
                     activeOpacity={0.92}
                     onPress={() => {
@@ -342,8 +343,8 @@ export default function EStoreScreen({ navigation, route }) {
                     </View>
                     <Image source={{ uri: item.image }} style={s.promoBannerImg} resizeMode="cover" />
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
 
               {/* Pagination Dots */}
               <View style={s.paginationDotsRow}>
@@ -532,8 +533,19 @@ export default function EStoreScreen({ navigation, route }) {
             </View>
 
             {/* Product Vertical List */}
-            <View style={s.productListContainer}>
-              {filteredProducts.map((item) => {
+            {filteredProducts.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 }}>
+                <MaterialCommunityIcons name="store-search-outline" size={50} color="#8E6A56" />
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#2A1810', marginTop: 12 }}>
+                  कोई सामग्री उपलब्ध नहीं है
+                </Text>
+                <Text style={{ fontSize: 13, color: '#8E6A56', textAlign: 'center', marginTop: 4 }}>
+                  इस श्रेणी में कोई उत्पाद उपलब्ध नहीं है।
+                </Text>
+              </View>
+            ) : (
+              <View style={s.productListContainer}>
+                {filteredProducts.map((item) => {
                 const isFav = estoreStore.isInWishlist(item.id);
                 return (
                   <TouchableOpacity
@@ -599,7 +611,8 @@ export default function EStoreScreen({ navigation, route }) {
                   </TouchableOpacity>
                 );
               })}
-            </View>
+              </View>
+            )}
           </>
         )}
       </ScrollView>

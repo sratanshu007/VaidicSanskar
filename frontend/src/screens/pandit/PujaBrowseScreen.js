@@ -8,6 +8,7 @@ import {
   TextInput,
   Image,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,114 +16,27 @@ import colors from '../../theme/colors';
 import { serif } from '../../theme/styles';
 import { useLanguage } from '../../context/LanguageContext';
 import { PujaService } from '../../services/api';
-
-import { ActivityIndicator } from 'react-native';
+import { getPoojaImage } from '../../utils/poojaImages';
 
 const CATEGORIES = ['All', 'Popular', 'Peace', 'Prosperity'];
-
-const DEFAULT_POOJAS = [
-  {
-    id: 'satyanarayan',
-    name: 'Satyanarayan Pooja',
-    hindi: 'श्री सत्यनारायण महापूजा',
-    tagline: 'For happiness, peace & family prosperity',
-    category: 'Popular',
-    price: 2500,
-    duration: '1.5 - 2 hrs',
-    samagri: 600,
-    bestDay: 'Thursday, Purnima, Ekadashi',
-    suitableFor: 'Family, New Home, Business, Gratitude',
-    desc: 'Sacred recitation of Lord Satyanarayan Katha with Panchamrit, Tulsi Arpan, and Havan.',
-    image: require('../../../assets/services/puja_temple.png'),
-  },
-  {
-    id: 'griha_pravesh',
-    name: 'Griha Pravesh Pooja',
-    hindi: 'गृह प्रवेश एवं वास्तु शांति',
-    tagline: 'Auspicious housewarming and negative energy removal',
-    category: 'Popular',
-    price: 5100,
-    duration: '3 - 3.5 hrs',
-    samagri: 1100,
-    bestDay: 'Shukla Paksha Auspicious Muhurat',
-    suitableFor: 'New House, Flat, Office Inauguration',
-    desc: 'Complete Vastu Shanti, Navgrah Havan, and Dwar Pooja by Vedic scholars.',
-    image: require('../../../assets/services/pandit_booking.png'),
-  },
-  {
-    id: 'ganesh_pooja',
-    name: 'Ganesh Pooja',
-    hindi: 'श्री गणेश चतुर्थी व विघ्नहर्ता पूजा',
-    tagline: 'Removal of obstacles & auspicious beginnings',
-    category: 'Popular',
-    price: 2100,
-    duration: '1 - 1.5 hrs',
-    samagri: 500,
-    bestDay: 'Wednesday, Chaturthi',
-    suitableFor: 'New Business, Exams, New Projects',
-    desc: 'Invocation of Lord Vighnaharta with Modak Bhog, Atharvashirsha Path, and Durva offering.',
-    image: require('../../../assets/services/pandit_booking.png'),
-  },
-  {
-    id: 'rudrabhishek',
-    name: 'Rudrabhishek Pooja',
-    hindi: 'महा रुद्राभिषेक एवं शिव पूजन',
-    tagline: 'For health, longevity & negative dosha removal',
-    category: 'Peace',
-    price: 3100,
-    duration: '2 - 2.5 hrs',
-    samagri: 700,
-    bestDay: 'Monday, Pradosh, Shivratri',
-    suitableFor: 'Health, Overcoming Sickness, Mental Peace',
-    desc: 'Potent Shivling Abhishek with 11 sacred Dravyas and Sri Rudram chanting.',
-    image: require('../../../assets/banner_havan_kund.png'),
-  },
-  {
-    id: 'havan_yagya',
-    name: 'Maha Havan & Yagya',
-    hindi: 'पवित्र महा हवन एवं यज्ञ',
-    tagline: 'Spiritual purification and aura cleansing',
-    category: 'Popular',
-    price: 3500,
-    duration: '2 - 2.5 hrs',
-    samagri: 800,
-    bestDay: 'Sunday, Purnima, Amavasya',
-    suitableFor: 'Home Purification, Negative Energy Removal',
-    desc: 'Sacred Agni invocation with pure desi cow ghee, 108 Ahutis, and herbal samagri.',
-    image: require('../../../assets/banner_havan_kund.png'),
-  },
-  {
-    id: 'vivah_sanskar',
-    name: 'Vivah Sanskar (Wedding Rituals)',
-    hindi: 'वैदिक विवाह संस्कार',
-    tagline: 'Complete 16 Samskaras traditional Vedic marriage ceremony',
-    category: 'Popular',
-    price: 11000,
-    duration: '4 - 5 hrs',
-    samagri: 2500,
-    bestDay: 'Shubh Vivah Lagna Muhurat',
-    suitableFor: 'Wedding, Kanyadaan, Saptapadi',
-    desc: 'Authentic Vedic marriage conducted with Jaimala, Kanyadaan, Laja Havan, and Saptapadi.',
-    image: require('../../../assets/services/puja_temple.png'),
-  },
-];
 
 export default function PujaBrowseScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { isHindi } = useLanguage();
   const [selectedCat, setSelectedCat] = useState('All');
   const [q, setQ] = useState('');
-  const [poojas, setPoojas] = useState(DEFAULT_POOJAS);
-  const [loading, setLoading] = useState(false);
+  const [poojas, setPoojas] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     PujaService.list()
       .then((res) => {
         const raw = Array.isArray(res) ? res : res?.pujas || res?.data || [];
         if (raw.length) {
-          const mapped = raw.map((p) => ({
-            id: String(p._id || p.id),
-            name: p.name,
+          const mapped = raw.map((p, idx) => ({
+            id: String(p._id || p.id || `pooja_${idx}`),
+            name: p.name || 'Vedic Pooja',
             hindi: p.hindi || '',
             tagline: p.tagline || p.shortDescription || p.description || 'Vedic Pooja',
             category: p.category || 'Popular',
@@ -132,23 +46,29 @@ export default function PujaBrowseScreen({ navigation }) {
             bestDay: p.bestDay || 'Auspicious Muhurat',
             suitableFor: p.suitableFor || 'Family, Home & Business',
             desc: p.desc || p.description || 'Conducted by certified Vedic pandits.',
-            image: require('../../../assets/services/puja_temple.png'),
+            image: getPoojaImage(p),
           }));
           setPoojas(mapped);
+        } else {
+          setPoojas([]);
         }
       })
-      .catch((err) => console.log('Error loading poojas from backend:', err?.message))
+      .catch((err) => {
+        console.log('Error loading poojas from backend:', err?.message);
+        setPoojas([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const filteredPoojas = poojas.filter((p) => {
+    if (!p || !p.name) return false;
     const matchesCat =
       selectedCat === 'All' ||
-      p.category?.toLowerCase() === selectedCat.toLowerCase();
+      (p.category && p.category.toLowerCase() === selectedCat.toLowerCase());
     const matchesSearch =
       !q ||
-      p.name.toLowerCase().includes(q.toLowerCase()) ||
-      p.tagline.toLowerCase().includes(q.toLowerCase());
+      (p.name && p.name.toLowerCase().includes(q.toLowerCase())) ||
+      (p.tagline && p.tagline.toLowerCase().includes(q.toLowerCase()));
     return matchesCat && matchesSearch;
   });
 
@@ -214,34 +134,53 @@ export default function PujaBrowseScreen({ navigation }) {
         </ScrollView>
       </View>
 
-      {/* 4. SACRED POOJA LIST CARDS (MATCHING SCREEN 4) */}
+      {/* 4. SACRED POOJA LIST CARDS */}
       <ScrollView
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
       >
-        {filteredPoojas.map((pooja) => (
-          <TouchableOpacity
-            key={pooja.id}
-            style={s.poojaItemCard}
-            activeOpacity={0.88}
-            onPress={() => navigation.navigate('PoojaDetail', { pooja })}
-          >
-            <View style={s.poojaIconBox}>
-              <Image source={pooja.image} style={s.poojaIconImg} resizeMode="contain" />
-            </View>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#6A141D" />
+            <Text style={{ marginTop: 12, color: '#8C7A68', fontSize: 13 }}>
+              Loading sacred poojas...
+            </Text>
+          </View>
+        ) : filteredPoojas.length === 0 ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <Ionicons name="search-outline" size={44} color="#8C7A68" />
+            <Text style={{ marginTop: 12, color: '#2E1308', fontSize: 16, fontWeight: '700' }}>
+              No Poojas Found
+            </Text>
+            <Text style={{ marginTop: 4, color: '#8C7A68', fontSize: 13 }}>
+              Try selecting another category or searching with a different term.
+            </Text>
+          </View>
+        ) : (
+          filteredPoojas.map((pooja, idx) => (
+            <TouchableOpacity
+              key={String(pooja.id || `pooja-${idx}`)}
+              style={s.poojaItemCard}
+              activeOpacity={0.88}
+              onPress={() => navigation.navigate('PoojaDetail', { pooja })}
+            >
+              <View style={s.poojaIconBox}>
+                <Image source={pooja.image || getPoojaImage(pooja)} style={s.poojaIconImg} resizeMode="contain" />
+              </View>
 
-            <View style={s.poojaInfo}>
-              <Text style={s.poojaTitle} numberOfLines={1}>
-                {pooja.name}
-              </Text>
-              <Text style={s.poojaSub} numberOfLines={1}>
-                {pooja.tagline}
-              </Text>
-            </View>
+              <View style={s.poojaInfo}>
+                <Text style={s.poojaTitle} numberOfLines={1}>
+                  {pooja.name}
+                </Text>
+                <Text style={s.poojaSub} numberOfLines={1}>
+                  {pooja.tagline}
+                </Text>
+              </View>
 
-            <Ionicons name="chevron-forward" size={18} color="#8C7A68" />
-          </TouchableOpacity>
-        ))}
+              <Ionicons name="chevron-forward" size={18} color="#8C7A68" />
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -282,35 +221,35 @@ const s = StyleSheet.create({
     fontFamily: serif,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: '#7C6C5E',
+    fontSize: 11.5,
+    color: '#8C7A68',
     marginTop: 2,
   },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#EADBCE',
     marginHorizontal: 16,
     marginTop: 14,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    height: 46,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
     color: '#2E1308',
+    padding: 0,
   },
   catsContainer: {
-    marginBottom: 14,
+    marginVertical: 14,
   },
   catPill: {
     paddingHorizontal: 18,
-    paddingVertical: 7,
-    borderRadius: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#EADBCE',
@@ -321,12 +260,13 @@ const s = StyleSheet.create({
     borderColor: '#6A141D',
   },
   catPillText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '600',
-    color: '#6E5D4F',
+    color: '#6B5749',
   },
   catPillTextActive: {
-    color: '#FFFFFF',
+    color: '#FAF4E8',
+    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: 16,
@@ -337,28 +277,31 @@ const s = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#EADBCE',
     padding: 12,
     marginBottom: 12,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#EFE4D6',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 1.5 },
+    shadowOpacity: 0.04,
     shadowRadius: 4,
+    elevation: 1.5,
   },
   poojaIconBox: {
-    width: 52,
-    height: 52,
+    width: 62,
+    height: 62,
     borderRadius: 12,
-    backgroundColor: '#FDF7EC',
+    backgroundColor: '#FFF8EE',
+    borderWidth: 1,
+    borderColor: '#F1E3D3',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 4,
     marginRight: 12,
   },
   poojaIconImg: {
-    width: 38,
-    height: 38,
+    width: '100%',
+    height: '100%',
   },
   poojaInfo: {
     flex: 1,
@@ -367,10 +310,10 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#2E1308',
+    marginBottom: 4,
   },
   poojaSub: {
     fontSize: 12,
-    color: '#7C6C5E',
-    marginTop: 3,
+    color: '#8C7A68',
   },
 });

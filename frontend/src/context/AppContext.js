@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthToken, WalletService } from '../services/api';
 import panditBookingStore from '../services/panditBookingStore';
 import talkToAstroStore from '../services/talkToAstroStore';
+import socket from '../services/socket';
 
 const USER_STORAGE_KEY = '@vaidic_sanskar_user_profile';
 
@@ -50,6 +51,8 @@ export const AppProvider = ({ children }) => {
             const parsed = JSON.parse(raw);
             setUser(parsed);
             if (parsed?.token) setAuthToken(parsed.token);
+            const uid = parsed?.id || parsed?._id || parsed?.phone || parsed?.email;
+            if (uid) socket.setActiveUser(uid);
             if (parsed) refreshWallet();
           } catch (e) { }
         }
@@ -72,6 +75,8 @@ export const AppProvider = ({ children }) => {
     });
     if (u) {
       AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u)).catch(() => { });
+      const uid = u?.id || u?._id || u?.phone || u?.email;
+      if (uid) socket.setActiveUser(uid);
     }
     if (u?.token) setAuthToken(u.token);
     if (u) refreshWallet();
@@ -84,6 +89,7 @@ export const AppProvider = ({ children }) => {
     setCart([]);
     AsyncStorage.removeItem(USER_STORAGE_KEY).catch(() => { });
     setAuthToken(null);
+    socket.setActiveUser(null);
     panditBookingStore.clearLocalCache();
     talkToAstroStore.resetWallet();
   }, []);
@@ -99,6 +105,24 @@ export const AppProvider = ({ children }) => {
   const addAddress = useCallback((addr) => {
     setUser((prev) => {
       const addresses = [...(prev?.addresses || []), { id: Date.now().toString(), ...addr }];
+      const updated = { ...(prev || {}), addresses };
+      AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated)).catch(() => { });
+      return updated;
+    });
+  }, []);
+
+  const updateAddress = useCallback((addrId, updatedFields) => {
+    setUser((prev) => {
+      const addresses = (prev?.addresses || []).map((a) => (a.id === addrId ? { ...a, ...updatedFields } : a));
+      const updated = { ...(prev || {}), addresses };
+      AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated)).catch(() => { });
+      return updated;
+    });
+  }, []);
+
+  const deleteAddress = useCallback((addrId) => {
+    setUser((prev) => {
+      const addresses = (prev?.addresses || []).filter((a) => a.id !== addrId);
       const updated = { ...(prev || {}), addresses };
       AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated)).catch(() => { });
       return updated;
@@ -160,7 +184,7 @@ export const AppProvider = ({ children }) => {
 
   const value = {
     // auth
-    user, setUser, login, logout, updateProfile, addAddress,
+    user, setUser, login, logout, updateProfile, addAddress, updateAddress, deleteAddress,
     // wallet
     balance, ledger, addMoney, deduct,
     // cart
@@ -179,6 +203,18 @@ export const useApp = () => {
   if (!ctx) throw new Error('useApp must be used within AppProvider');
   return ctx;
 };
-export const useAuth = () => { const c = useApp(); return { user: c.user, login: c.login, logout: c.logout, updateProfile: c.updateProfile, addAddress: c.addAddress }; };
+export const useAuth = () => {
+  const c = useApp();
+  return {
+    user: c.user,
+    login: c.login,
+    logout: c.logout,
+    updateProfile: c.updateProfile,
+    addAddress: c.addAddress,
+    updateAddress: c.updateAddress,
+    deleteAddress: c.deleteAddress,
+    addresses: c.user?.addresses || [],
+  };
+};
 export const useWallet = () => { const c = useApp(); return { balance: c.balance, ledger: c.ledger, addMoney: c.addMoney, deduct: c.deduct }; };
 export const useCart = () => { const c = useApp(); return { cart: c.cart, addToCart: c.addToCart, removeFromCart: c.removeFromCart, updateQty: c.updateQty, clearCart: c.clearCart, cartTotal: c.cartTotal }; };

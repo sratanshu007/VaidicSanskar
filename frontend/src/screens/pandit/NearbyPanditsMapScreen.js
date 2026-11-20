@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../../context/LanguageContext';
 import { useApp } from '../../context/AppContext';
 import colors from '../../theme/colors';
+import { PanditService } from '../../services/api';
 import {
   getCurrentUserLocation,
   getNearbyPandits,
@@ -54,23 +55,42 @@ export default function NearbyPanditsMapScreen({ navigation, route }) {
 
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
+  const [isLiveGps, setIsLiveGps] = useState(false);
+  const [locationError, setLocationError] = useState(null);
   const [selectedRadius, setSelectedRadius] = useState(10);
   const [selectedSpecialty, setSelectedSpecialty] = useState('All');
   const [viewMode, setViewMode] = useState('map'); // 'map' or 'list'
   const [selectedPandit, setSelectedPandit] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [backendPandits, setBackendPandits] = useState([]);
 
-  // 1. Fetch current GPS location
-  useEffect(() => {
-    async function initLocation() {
-      setLoading(true);
-      const res = await getCurrentUserLocation();
-      if (res?.coords) {
-        setUserLocation(res.coords);
-      }
-      setLoading(false);
+  const fetchLocation = async () => {
+    setLoading(true);
+    setLocationError(null);
+    const res = await getCurrentUserLocation();
+    if (res?.success && res?.coords) {
+      setUserLocation(res.coords);
+      setIsLiveGps(true);
+    } else {
+      setLocationError(res?.message || 'लोकेशन प्राप्त नहीं हो सकी।');
     }
-    initLocation();
+    setLoading(false);
+  };
+
+  // 1. Fetch current GPS location and backend pandits on mount
+  useEffect(() => {
+    fetchLocation();
+    (async () => {
+      try {
+        const res = await PanditService.list();
+        const raw = Array.isArray(res) ? res : (res?.vendors ?? res?.data ?? res?.pandits ?? []);
+        if (Array.isArray(raw)) {
+          setBackendPandits(raw);
+        }
+      } catch (e) {
+        console.log('Error loading pandits for map:', e?.message);
+      }
+    })();
   }, []);
 
   // 2. Fetch nearby pandits based on location and filters
@@ -79,7 +99,8 @@ export default function NearbyPanditsMapScreen({ navigation, route }) {
       userLocation.latitude,
       userLocation.longitude,
       selectedRadius,
-      selectedSpecialty
+      selectedSpecialty,
+      backendPandits
     );
 
     if (!searchQuery.trim()) return list;
@@ -114,7 +135,12 @@ export default function NearbyPanditsMapScreen({ navigation, route }) {
   };
 
   const handleCallPandit = (pandit) => {
-    Linking.openURL('tel:9876543210');
+    const phone = pandit?.phone || pandit?.contact || '';
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    } else {
+      Alert.alert('संपर्क', 'पंडित जी का फ़ोन नंबर उपलब्ध नहीं है।');
+    }
   };
 
   return (
@@ -242,16 +268,13 @@ export default function NearbyPanditsMapScreen({ navigation, route }) {
           <TouchableOpacity
             style={s.recenterGpsFab}
             activeOpacity={0.8}
-            onPress={async () => {
-              setLoading(true);
-              const res = await getCurrentUserLocation();
-              if (res?.coords) {
-                setUserLocation(res.coords);
-              }
-              setLoading(false);
-            }}
+            onPress={fetchLocation}
           >
-            <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#C87A14" />
+            <MaterialCommunityIcons
+              name={isLiveGps ? 'crosshairs-gps' : 'crosshairs-question'}
+              size={22}
+              color={isLiveGps ? '#2E7D32' : '#C87A14'}
+            />
           </TouchableOpacity>
 
           {/* FLOATING PANDIT PROFILE CARD AT BOTTOM */}

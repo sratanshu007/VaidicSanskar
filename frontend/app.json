@@ -14,6 +14,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.deificdigital.paramparauser",
       "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Required to find nearby verified Vedic Pandits and show live tracking for booked pujas.",
         "NSCameraUsageDescription": "Required for live video consultation with astrologers.",
         "NSMicrophoneUsageDescription": "Required for voice calling and consultation with astrologers."
       }
@@ -42,6 +43,12 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Vaidic Sanskar to access your location to find nearby verified Pandits."
+        }
+      ],
       "expo-font",
       "expo-status-bar",
       [
